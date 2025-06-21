@@ -21,7 +21,7 @@ def read_requirements():
 
 
 setup(
-    name="cryptoscan",
+    name="pycryptoscan",
     version="1.0.0",
     author="DedInc.",
     author_email="visitanimation@gmail.com",
