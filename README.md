@@ -29,7 +29,7 @@ CryptoScan is a fast, reliable, and extensible Python library for monitoring cry
 ### Installation
 
 ```bash
-pip install cryptoscan
+pip install pycryptoscan
 ```
 
 ### Basic Usage
