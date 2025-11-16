@@ -197,6 +197,24 @@ def register_common_networks() -> None:
             decimals=9,
             aliases=["sol"],
             chain_type="solana"
+        ),
+        NetworkConfig(
+            name="bitcoin",
+            symbol="BTC",
+            rpc_url="https://bitcoin-rpc.publicnode.com",
+            address_pattern=r'^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$|^bc1[a-z0-9]{39,59}$',
+            decimals=8,
+            aliases=["btc"],
+            chain_type="bitcoin"
+        ),
+        NetworkConfig(
+            name="tron",
+            symbol="TRX",
+            rpc_url="https://tron-rpc.publicnode.com",
+            address_pattern=r'^T[1-9A-HJ-NP-Za-km-z]{33}$',
+            decimals=6,
+            aliases=["trx"],
+            chain_type="tron"
         )
     ]
     

@@ -5,7 +5,6 @@ Chain-specific transaction parsers
 from datetime import datetime
 from decimal import Decimal
 from typing import List, Optional
-import httpx
 
 from .models import PaymentInfo, PaymentStatus
 
@@ -154,69 +153,63 @@ class SolanaParser:
 
 
 class BitcoinParser:
-    """Parser for Bitcoin transactions"""
+    """Parser for Bitcoin transactions using RPC"""
     
-    def __init__(self, network_config, currency_symbol, timeout: float):
+    def __init__(self, client, network_config, currency_symbol):
+        self.client = client
         self.network_config = network_config
         self.currency_symbol = currency_symbol
-        self.timeout = timeout
-        self._http_client: Optional[httpx.AsyncClient] = None
-    
-    async def _ensure_client(self):
-        """Ensure HTTP client exists"""
-        if not self._http_client:
-            self._http_client = httpx.AsyncClient(timeout=self.timeout, http2=True)
-    
-    async def close(self):
-        """Close HTTP client"""
-        if self._http_client:
-            await self._http_client.aclose()
-            self._http_client = None
     
     async def get_transactions(self, address: str, limit: int) -> List[PaymentInfo]:
-        """Get Bitcoin transactions"""
-        await self._ensure_client()
+        """Get Bitcoin transactions via RPC"""
+        await self.client.connect()
         
         try:
-            response = await self._http_client.get(
-                f"https://blockchain.info/rawaddr/{address}?limit={limit}"
-            )
-            data = response.json()
-            return [self.parse_transaction(tx, address) for tx in data.get("txs", [])[:limit]]
+            # Use Bitcoin RPC methods
+            result = await self.client.call("scantxoutset", ["start", [f"addr({address})"]],)
+            # Note: Bitcoin RPC has limited transaction history access
+            # For full transaction history, users should use block explorers or indexers
+            return []
         except:
             return []
     
     async def get_transaction(self, tx_id: str) -> Optional[PaymentInfo]:
-        """Get Bitcoin transaction"""
-        await self._ensure_client()
+        """Get Bitcoin transaction via RPC"""
+        await self.client.connect()
         
         try:
-            response = await self._http_client.get(f"https://blockchain.info/rawtx/{tx_id}")
-            return self.parse_transaction(response.json())
+            tx = await self.client.call("getrawtransaction", [tx_id, True])
+            if not tx:
+                return None
+            return self.parse_transaction(tx)
         except:
             return None
     
     def parse_transaction(self, tx: dict, address: str = None) -> PaymentInfo:
-        """Parse Bitcoin transaction"""
+        """Parse Bitcoin RPC transaction"""
         amount = Decimal(0)
         to_addr = ""
-        for out in tx.get("out", []):
-            if address and out.get("addr") == address:
-                amount += Decimal(out.get("value", 0)) / Decimal(10 ** self.network_config.decimals)
-                to_addr = out.get("addr", "")
-                break
         
-        from_addr = tx.get("inputs", [{}])[0].get("prev_out", {}).get("addr", "") if tx.get("inputs") else ""
+        # Parse vout for receiving amounts
+        for vout in tx.get("vout", []):
+            value = Decimal(vout.get("value", 0))
+            amount += value
+            if vout.get("scriptPubKey", {}).get("addresses"):
+                to_addr = vout["scriptPubKey"]["addresses"][0]
+        
+        from_addr = ""
+        if tx.get("vin") and tx["vin"][0].get("txid"):
+            from_addr = "<coinbase>" if "coinbase" in tx["vin"][0] else "<unknown>"
         
         return PaymentInfo(
-            transaction_id=tx["hash"],
+            transaction_id=tx.get("txid", ""),
             wallet_address=to_addr,
             amount=amount,
             currency=self.currency_symbol,
-            status=PaymentStatus.CONFIRMED,
+            status=PaymentStatus.CONFIRMED if tx.get("confirmations", 0) > 0 else PaymentStatus.PENDING,
             timestamp=datetime.fromtimestamp(tx.get("time", 0)) if tx.get("time") else datetime.utcnow(),
-            block_height=tx.get("block_height"),
-            confirmations=0,
+            block_height=tx.get("blockheight"),
+            confirmations=tx.get("confirmations", 0),
             fee=None,
             from_address=from_addr,
             to_address=to_addr,

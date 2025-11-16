@@ -22,7 +22,7 @@ def read_requirements():
 
 setup(
     name="pycryptoscan",
-    version="2.0.0",
+    version="2.0.1",
     author="DedInc.",
     author_email="visitanimation@gmail.com",
     description="Professional Real-Time Crypto Payment Monitoring Library for Python",

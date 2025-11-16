@@ -64,8 +64,6 @@ class UniversalProvider:
     async def close(self):
         """Close connections"""
         await self.client.close()
-        if isinstance(self._parser, BitcoinParser):
-            await self._parser.close()
         if self.api_adapter:
             await self.api_adapter.close()
     
@@ -78,7 +76,9 @@ class UniversalProvider:
         elif chain_type == "solana":
             return SolanaParser(self.client, self.network_config, self.CURRENCY_SYMBOL)
         elif chain_type == "bitcoin":
-            return BitcoinParser(self.network_config, self.CURRENCY_SYMBOL, self.config.timeout)
+            return BitcoinParser(self.client, self.network_config, self.CURRENCY_SYMBOL)
+        elif chain_type == "tron":
+            return EVMParser(self.client, self.network_config, self.CURRENCY_SYMBOL)  # TRON uses EVM-compatible calls
         else:
             return None
     
