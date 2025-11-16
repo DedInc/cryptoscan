@@ -1,297 +1,226 @@
 """
-Factory Pattern for CryptoScan
-
-Provides convenient factory methods for creating payment monitors
-and network providers for different cryptocurrencies.
+Factory functions for creating monitors and providers
 """
 
 from decimal import Decimal
-from typing import Optional, Dict, Type
-import logging
+from typing import Optional, Union
 
-from .core.base import BaseNetworkProvider, UserConfig
-from .core.monitor import PaymentMonitor
-from .providers.solana import SolanaProvider
-from .providers.ethereum import EthereumProvider
-from .providers.ton import TONProvider
-from .providers.usdt_tron import USDTTronProvider
-from .providers.bitcoin import BitcoinProvider
-from .config import CryptoScanConfig, default_config
-from .exceptions import ConfigurationError
+from .config import UserConfig
+from .exceptions import ValidationError
+from .monitoring import PaymentMonitor
+from .universal_provider import UniversalProvider
+from .networks import get_network, list_networks as get_network_list, NetworkConfig
 
 
-logger = logging.getLogger(__name__)
-
-
-class ProviderRegistry:
-    """Registry for network providers."""
+def _should_use_realtime(network_config: NetworkConfig, custom_rpc_url: Optional[str] = None) -> bool:
+    """Detect if real-time monitoring should be used based on WebSocket availability"""
+    # Check custom RPC URL first
+    if custom_rpc_url and custom_rpc_url.startswith('wss://'):
+        return True
     
-    _providers: Dict[str, Type[BaseNetworkProvider]] = {
-        "solana": SolanaProvider,
-        "sol": SolanaProvider,  # Alias
-        "ethereum": EthereumProvider,
-        "eth": EthereumProvider,  # Alias
-        "bitcoin": BitcoinProvider,
-        "btc": BitcoinProvider,  # Alias
-        "ton": TONProvider,
-        "usdt_tron": USDTTronProvider,
-        "usdt": USDTTronProvider,  # Alias
-        "trc20": USDTTronProvider,  # Alias
-    }
+    # Check if network has WebSocket configured
+    if network_config.ws_url is not None:
+        return True
     
-    @classmethod
-    def register(cls, name: str, provider_class: Type[BaseNetworkProvider]) -> None:
-        """
-        Register a new network provider.
-        
-        Args:
-            name: Network name (e.g., 'ethereum', 'bitcoin')
-            provider_class: Provider class that inherits from BaseNetworkProvider
-        """
-        cls._providers[name.lower()] = provider_class
-        logger.info(f"Registered provider '{name}' -> {provider_class.__name__}")
+    # No WebSocket available, use polling
+    return False
+
+
+def create_monitor(
+    network: str | NetworkConfig,  # Network name OR NetworkConfig object
+    wallet_address: str,
+    expected_amount: Union[str, Decimal],
+    poll_interval: float = 15.0,
+    max_transactions: int = 10,
+    auto_stop: bool = False,
+    rpc_url: Optional[str] = None,
+    ws_url: Optional[str] = None,  # Optional WebSocket URL
+    monitor_id: Optional[str] = None,
+    user_config: Optional[UserConfig] = None,
+    timeout: Optional[float] = None,
+    max_retries: Optional[int] = None,
+    realtime: Optional[bool] = None,  # Auto-detect: None = smart detection
+    min_confirmations: int = 1,  # Minimum confirmations required
+    **kwargs
+) -> PaymentMonitor:
+    """Create a payment monitor for any blockchain network
     
-    @classmethod
-    def get(cls, name: str) -> Type[BaseNetworkProvider]:
-        """
-        Get a provider class by name.
-        
-        Args:
-            name: Network name
-            
-        Returns:
-            Provider class
-            
-        Raises:
-            ConfigurationError: If provider is not registered
-        """
-        provider_class = cls._providers.get(name.lower())
-        if not provider_class:
-            available = ", ".join(cls._providers.keys())
-            raise ConfigurationError(
-                f"Provider '{name}' not found. Available providers: {available}"
-            )
-        return provider_class
+    Supports any blockchain (EVM, Solana, Bitcoin, etc.) through:
+    1. Predefined network names (e.g., "ethereum", "solana")
+    2. Custom NetworkConfig objects for any network
+    3. Custom RPC/WebSocket URLs
     
-    @classmethod
-    def list_providers(cls) -> Dict[str, Type[BaseNetworkProvider]]:
-        """Get all registered providers."""
-        return cls._providers.copy()
-
-
-class CryptoScanFactory:
-    """
-    Factory class for creating CryptoScan components.
+    Auto-detects monitoring mode:
+    - WebSocket (real-time) if ws_url provided or rpc_url starts with wss://
+    - Polling mode otherwise
+    - Can be forced with realtime parameter
     
-    Provides convenient methods for creating payment monitors
-    and network providers with sensible defaults.
-    """
-    
-    def __init__(self, config: Optional[CryptoScanConfig] = None):
-        """
-        Initialize factory with configuration.
-        
-        Args:
-            config: CryptoScan configuration. Uses default if None.
-        """
-        self.config = config or default_config
-    
-    def create_provider(self, network: str,
-                       user_config: Optional[UserConfig] = None) -> BaseNetworkProvider:
-        """
-        Create a network provider for the specified cryptocurrency.
-
-        Args:
-            network: Network name (e.g., 'solana', 'ethereum', 'bitcoin')
-            user_config: User-configurable settings (proxy, timeouts, etc.).
-                        Core network settings (RPC URL, headers) are preserved from defaults.
-
-        Returns:
-            Configured network provider instance
-
-        Raises:
-            ConfigurationError: If network is not supported
-        """
-        provider_class = ProviderRegistry.get(network)
-
-        # Get the default network config for this provider
-        try:
-            base_config = self.config.get_network_config(network.lower())
-        except ConfigurationError:
-            # Use provider's default config if not found in main config
-            base_config = None
-
-        # Apply user configuration if provided
-        if user_config is not None and base_config is not None:
-            final_config = base_config.apply_user_config(user_config)
-        else:
-            final_config = base_config
-
-        return provider_class(final_config)
-    
-    def create_monitor(self,
-                      network: str,
-                      wallet_address: str,
-                      expected_amount: str | Decimal,
-
-                      poll_interval: Optional[float] = None,
-                      max_transactions: Optional[int] = None,
-                      auto_stop: bool = False,
-                      user_config: Optional[UserConfig] = None,
-                      monitor_id: Optional[str] = None) -> PaymentMonitor:
-        """
-        Create a payment monitor for the specified cryptocurrency.
-
-        Args:
-            network: Network name (e.g., 'solana', 'ethereum', 'bitcoin')
-            wallet_address: Wallet address to monitor
-            expected_amount: Expected payment amount
-
-            poll_interval: Seconds between polling cycles
-            max_transactions: Maximum transactions to check per poll
-            user_config: User-configurable settings (proxy, timeouts, etc.).
-                        Core network settings (RPC URL, headers) are preserved from defaults.
-            monitor_id: Unique identifier for this monitor
-
-        Returns:
-            Configured PaymentMonitor instance
-
-        Raises:
-            ConfigurationError: If network is not supported
-            ValidationError: If parameters are invalid
-        """
-        # Create provider
-        provider = self.create_provider(network, user_config)
-
-        # Use defaults from config if not specified
-        if poll_interval is None:
-            poll_interval = self.config.default_poll_interval
-        if max_transactions is None:
-            max_transactions = self.config.default_max_transactions
-
-        return PaymentMonitor(
-            provider=provider,
-            wallet_address=wallet_address,
-            expected_amount=expected_amount,
-            poll_interval=poll_interval,
-            max_transactions=max_transactions,
-            auto_stop=auto_stop,
-            monitor_id=monitor_id
-        )
-    
-
-
-
-# Global factory instance
-factory = CryptoScanFactory()
-
-
-# Main API - Provider-agnostic payment monitoring
-def create_monitor(network: str,
-                  wallet_address: str,
-                  expected_amount: str | Decimal,
-                  poll_interval: Optional[float] = None,
-                  max_transactions: Optional[int] = None,
-                  auto_stop: bool = False,
-                  user_config: Optional[UserConfig] = None,
-                  **kwargs) -> PaymentMonitor:
-    """
-    Create a payment monitor for any supported cryptocurrency network.
-
-    This is the main API function that provides a unified interface for monitoring
-    payments across different blockchain networks without needing to know the
-    specific provider implementation details.
-
     Args:
-        network: Network name (e.g., 'solana', 'ethereum', 'bitcoin', 'dogecoin', 'ton')
-        wallet_address: Wallet address to monitor for payments
+        network: Network name (str) OR NetworkConfig object for custom networks
+        wallet_address: Wallet address to monitor
         expected_amount: Expected payment amount (exact match)
-        poll_interval: Seconds between polling cycles (default: 15.0)
-        max_transactions: Maximum transactions to check per poll (default: 10)
-        auto_stop: Whether to automatically stop after finding payment (default: False)
-        user_config: User-configurable settings (proxy, timeouts, etc.).
-                    Core network settings (RPC URL, headers) are preserved from defaults.
-        **kwargs: Additional user configuration options (timeout, max_retries, etc.)
-
+        poll_interval: Seconds between checks for polling mode (default: 15.0)
+        max_transactions: Max transactions to check per poll (default: 10)
+        auto_stop: Stop monitoring after finding payment (default: False)
+        rpc_url: Custom RPC URL (optional, overrides network config)
+        ws_url: Custom WebSocket URL (optional, enables real-time)
+        monitor_id: Optional monitor identifier
+        user_config: User configuration (optional)
+        timeout: Request timeout override
+        max_retries: Max retries override
+        realtime: Auto-detect (None), force real-time (True), or force polling (False)
+        min_confirmations: Minimum confirmations required (default: 1)
+        **kwargs: Additional configuration parameters
+    
     Returns:
-        Configured PaymentMonitor instance ready to start monitoring
-
-    Example:
-        # Solana payment monitoring with proxy
-        from cryptoscan import create_monitor, UserConfig, ProxyConfig
-
-        user_cfg = UserConfig(
-            proxy_config=ProxyConfig(
-                https_proxy="https://proxy.example.com:8080",
-                proxy_auth="username:password"
-            ),
-            timeout=60,
-            max_retries=5
-        )
-
-        monitor = create_monitor(
-            network="solana",
-            wallet_address="39eda9Jzabcr1HPkmjt7sZPCznZqngkfXZn1utwE8uwk",
-            expected_amount="0.1",
-            poll_interval=10.0,
-            user_config=user_cfg
-        )
-
-        # Simple monitoring
-        monitor = create_monitor(
-            network="ethereum",
-            wallet_address="0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6",
-            expected_amount="0.05"
-        )
+        PaymentMonitor instance
+    
+    Raises:
+        ValidationError: If network is not supported or parameters invalid
+    
+    Examples:
+        >>> monitor = create_monitor(
+        ...     network="ethereum",
+        ...     wallet_address="0x...",
+        ...     expected_amount="1.0",
+        ...     auto_stop=True
+        ... )
+        >>> await monitor.start()
+        
+        >>> # Custom network via NetworkConfig
+        >>> from cryptoscan import NetworkConfig
+        >>> custom_net = NetworkConfig(
+        ...     name="mychain",
+        ...     symbol="MCH",
+        ...     rpc_url="https://rpc.mychain.com",
+        ...     chain_type="evm",
+        ...     decimals=18
+        ... )
+        >>> monitor = create_monitor(
+        ...     network=custom_net,
+        ...     wallet_address="0x...",
+        ...     expected_amount="1.0"
+        ... )
     """
-    # Create user config from kwargs if not provided
-    if user_config is None and kwargs:
-        from .core.base import ProxyConfig
-
-        # Extract proxy-related kwargs
-        proxy_kwargs = {}
-        if 'proxy_url' in kwargs or 'https_proxy' in kwargs:
-            proxy_kwargs['https_proxy'] = kwargs.pop('proxy_url', kwargs.pop('https_proxy', None))
-        if 'http_proxy' in kwargs:
-            proxy_kwargs['http_proxy'] = kwargs.pop('http_proxy')
-        if 'proxy_auth' in kwargs:
-            proxy_kwargs['proxy_auth'] = kwargs.pop('proxy_auth')
-        if 'proxy_headers' in kwargs:
-            proxy_kwargs['proxy_headers'] = kwargs.pop('proxy_headers')
-
-        proxy_config = ProxyConfig(**proxy_kwargs) if proxy_kwargs else None
-
-        # Create user config with remaining kwargs
-        user_config = UserConfig(
-            proxy_config=proxy_config,
-            **kwargs
+    # Get or create network configuration
+    if isinstance(network, NetworkConfig):
+        # User provided NetworkConfig directly
+        network_config = network
+    elif isinstance(network, str):
+        # Try to get from registry
+        network_config = get_network(network)
+        if not network_config:
+            # Not in registry - that's OK! User can still provide rpc_url
+            if not rpc_url:
+                supported = ", ".join(get_network_list())
+                raise ValidationError(
+                    f"Network '{network}' not in registry. "
+                    f"Either add it to NETWORKS or provide rpc_url parameter.\n"
+                    f"Registered networks: {supported}"
+                )
+            # Create minimal config for custom network
+            network_config = NetworkConfig(
+                name=network,
+                symbol="",
+                rpc_url=rpc_url,
+                ws_url=ws_url,
+                chain_type="evm"  # Default assumption
+            )
+    else:
+        raise ValidationError(f"Invalid network parameter type: {type(network)}")
+    
+    # Override network config with custom URLs if provided
+    if rpc_url or ws_url:
+        # User provided custom URLs - override config
+        from dataclasses import replace
+        network_config = replace(
+            network_config,
+            rpc_url=rpc_url or network_config.rpc_url,
+            ws_url=ws_url if ws_url is not None else network_config.ws_url
         )
-
-    return factory.create_monitor(
-        network=network,
+    
+    # Create or configure user config
+    if user_config is None:
+        user_config = UserConfig()
+    
+    # Apply overrides
+    if timeout is not None:
+        user_config.timeout = timeout
+    if max_retries is not None:
+        user_config.max_retries = max_retries
+    
+    # Create universal provider
+    provider = UniversalProvider(
+        network=network_config,
+        rpc_url=None,  # Already in network_config
+        user_config=user_config
+    )
+    
+    # Validate address format
+    if not network_config.validate_address(wallet_address):
+        raise ValidationError(
+            f"Invalid {network_config.name} address format: {wallet_address}"
+        )
+    
+    # Auto-detect real-time monitoring mode
+    if realtime is None:
+        # Auto-detect based on WebSocket availability
+        realtime = _should_use_realtime(network_config, rpc_url)
+    
+    # Create and return monitor
+    return PaymentMonitor(
+        provider=provider,
         wallet_address=wallet_address,
         expected_amount=expected_amount,
         poll_interval=poll_interval,
         max_transactions=max_transactions,
+        auto_stop=auto_stop,
+        monitor_id=monitor_id,
         user_config=user_config,
-        auto_stop=auto_stop
+        realtime=realtime,
+        min_confirmations=min_confirmations
     )
 
 
-
-
-
-def register_provider(name: str, provider_class: Type[BaseNetworkProvider]) -> None:
+def get_supported_networks() -> list[str]:
     """
-    Register a new network provider.
+    Get list of all supported network names
+    
+    Returns:
+        List of all available network identifiers (including aliases)
+    """
+    return get_network_list()
+
+
+def get_provider(
+    network: str,
+    rpc_url: Optional[str] = None,
+    user_config: Optional[UserConfig] = None
+) -> UniversalProvider:
+    """
+    Get a universal provider instance for ANY network
     
     Args:
-        name: Network name
-        provider_class: Provider class
+        network: Network name or alias
+        rpc_url: Optional custom RPC URL
+        user_config: Optional user configuration
+    
+    Returns:
+        UniversalProvider instance that works with any blockchain
+    
+    Raises:
+        ValidationError: If network not supported
     """
-    ProviderRegistry.register(name, provider_class)
-
-
-def list_supported_networks() -> Dict[str, Type[BaseNetworkProvider]]:
-    """Get all supported networks and their provider classes."""
-    return ProviderRegistry.list_providers()
+    network_config = get_network(network)
+    if not network_config:
+        supported = ", ".join(get_network_list())
+        raise ValidationError(
+            f"Unsupported network: '{network}'. "
+            f"Supported networks: {supported}"
+        )
+    
+    return UniversalProvider(
+        network=network_config,
+        rpc_url=rpc_url,
+        user_config=user_config
+    )

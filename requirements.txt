@@ -1,2 +1,4 @@
 # Core dependencies for CryptoScan
 httpx[http2]>=0.24.0,<1.0.0
+tenacity>=8.0.0
+websockets>=13.0

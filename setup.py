@@ -22,10 +22,10 @@ def read_requirements():
 
 setup(
     name="pycryptoscan",
-    version="1.0.0",
+    version="2.0.0",
     author="DedInc.",
     author_email="visitanimation@gmail.com",
-    description="Professional async crypto payment monitoring library for Python",
+    description="Professional Real-Time Crypto Payment Monitoring Library for Python",
     long_description=read_file('README.md'),
     long_description_content_type="text/markdown",
     url="https://github.com/DedInc/cryptoscan",
