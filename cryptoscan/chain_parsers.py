@@ -2,48 +2,84 @@
 Chain-specific transaction parsers
 """
 
+import logging
 from datetime import datetime
 from decimal import Decimal
 from typing import List, Optional
 
 from .models import PaymentInfo, PaymentStatus
 
+logger = logging.getLogger(__name__)
+
 
 class EVMParser:
     """Parser for EVM-compatible chains"""
-    
+
     def __init__(self, client, network_config, currency_symbol):
         self.client = client
         self.network_config = network_config
         self.currency_symbol = currency_symbol
-    
-    async def get_transactions(self, address: str, limit: int) -> List[PaymentInfo]:
+
+    async def get_transactions(
+        self, address: str, limit: int, expected_amount: Decimal = None
+    ) -> List[PaymentInfo]:
         """Get EVM transactions"""
         await self.client.connect()
-        
+
         latest_block = await self.client.call("eth_blockNumber")
-        block_num = int(latest_block, 16)
-        
+        latest_block_num = int(latest_block, 16)
+        logger.info(f"Scanning from block #{latest_block_num} for address {address}")
+
         transactions = []
+        # Check recent blocks (100 blocks = ~20 minutes on ETH)
         blocks_to_check = min(limit * 5, 100)
-        
+        logger.info(f"Will check {blocks_to_check} blocks...")
+
         for i in range(blocks_to_check):
             try:
-                block = await self.client.call("eth_getBlockByNumber", [hex(block_num - i), True])
+                block = await self.client.call(
+                    "eth_getBlockByNumber", [hex(latest_block_num - i), True]
+                )
                 if not block or not block.get("transactions"):
                     continue
-                
+
+                tx_count = len(block.get("transactions", []))
+                if i % 20 == 0:
+                    logger.debug(
+                        f"Checked block #{latest_block_num - i}, {tx_count} txs, found {len(transactions)} matches so far"
+                    )
+
                 for tx in block["transactions"]:
-                    if tx.get("to", "").lower() == address.lower():
-                        payment = self.parse_transaction(tx, block)
+                    to_addr = tx.get("to") or ""
+                    if to_addr.lower() == address.lower():
+                        payment = self.parse_transaction(
+                            tx, block, latest_block_num=latest_block_num
+                        )
+                        amount = payment.amount
+                        logger.info(
+                            f"Found TX to address: {tx['hash']}, amount: {amount} {self.currency_symbol}, confirmations: {payment.confirmations}"
+                        )
+
+                        # If expected_amount provided, return immediately on match
+                        if expected_amount is not None:
+                            if amount.normalize() == expected_amount.normalize():
+                                logger.info(
+                                    f"MATCH! Amount {amount} matches expected {expected_amount}"
+                                )
+                                return [payment]
+
                         transactions.append(payment)
                         if len(transactions) >= limit:
                             return transactions
-            except:
+            except Exception as e:
+                logger.debug(f"Error checking block {latest_block_num - i}: {e}")
                 continue
-        
+
+        logger.info(
+            f"Scan complete. Found {len(transactions)} transactions to {address}"
+        )
         return transactions
-    
+
     async def get_transaction(self, tx_id: str) -> Optional[PaymentInfo]:
         """Get single EVM transaction"""
         await self.client.connect()
@@ -53,14 +89,20 @@ class EVMParser:
                 return None
             receipt = await self.client.call("eth_getTransactionReceipt", [tx_id])
             return self.parse_transaction(tx, receipt=receipt)
-        except:
+        except Exception:
             return None
-    
-    def parse_transaction(self, tx: dict, block: dict = None, receipt: dict = None) -> PaymentInfo:
+
+    def parse_transaction(
+        self,
+        tx: dict,
+        block: dict = None,
+        receipt: dict = None,
+        latest_block_num: int = None,
+    ) -> PaymentInfo:
         """Parse EVM transaction"""
         value_wei = int(tx.get("value", "0x0"), 16)
-        amount = Decimal(value_wei) / Decimal(10 ** self.network_config.decimals)
-        
+        amount = Decimal(value_wei) / Decimal(10**self.network_config.decimals)
+
         block_number = None
         timestamp = datetime.utcnow()
         if block:
@@ -68,11 +110,18 @@ class EVMParser:
             timestamp = datetime.fromtimestamp(int(block.get("timestamp", "0x0"), 16))
         elif tx.get("blockNumber"):
             block_number = int(tx["blockNumber"], 16)
-        
+
         status = PaymentStatus.CONFIRMED if block_number else PaymentStatus.PENDING
         if receipt and receipt.get("status") == "0x0":
             status = PaymentStatus.FAILED
-        
+
+        # Calculate confirmations
+        confirmations = 0
+        if block_number and latest_block_num:
+            confirmations = latest_block_num - block_number + 1
+        elif block_number:
+            confirmations = 1  # At least 1 if it's in a block
+
         return PaymentInfo(
             transaction_id=tx["hash"],
             wallet_address=tx.get("to", ""),
@@ -81,137 +130,158 @@ class EVMParser:
             status=status,
             timestamp=timestamp,
             block_height=block_number,
-            confirmations=0,
+            confirmations=confirmations,
             fee=None,
             from_address=tx.get("from", ""),
             to_address=tx.get("to", ""),
-            raw_data={"tx": tx, "receipt": receipt, "block": block}
+            raw_data={"tx": tx, "receipt": receipt, "block": block},
         )
 
 
 class SolanaParser:
     """Parser for Solana transactions"""
-    
+
     def __init__(self, client, network_config, currency_symbol):
         self.client = client
         self.network_config = network_config
         self.currency_symbol = currency_symbol
-    
+
     async def get_transactions(self, address: str, limit: int) -> List[PaymentInfo]:
         """Get Solana transactions"""
         await self.client.connect()
-        signatures = await self.client.call("getSignaturesForAddress", [address, {"limit": limit}])
-        
+        signatures = await self.client.call(
+            "getSignaturesForAddress", [address, {"limit": limit}]
+        )
+
         transactions = []
         for sig_info in signatures or []:
             tx = await self.get_transaction(sig_info["signature"])
             if tx:
                 transactions.append(tx)
         return transactions
-    
+
     async def get_transaction(self, tx_id: str) -> Optional[PaymentInfo]:
         """Get Solana transaction"""
         await self.client.connect()
         try:
             result = await self.client.call(
                 "getTransaction",
-                [tx_id, {"encoding": "json", "maxSupportedTransactionVersion": 0}]
+                [tx_id, {"encoding": "json", "maxSupportedTransactionVersion": 0}],
             )
             if not result:
                 return None
-            
+
             return self.parse_transaction(result)
-        except:
+        except Exception:
             return None
-    
+
     def parse_transaction(self, result: dict) -> Optional[PaymentInfo]:
         """Parse Solana transaction"""
         try:
             meta = result.get("meta", {})
             message = result.get("transaction", {}).get("message", {})
-            
+
             pre = meta.get("preBalances", [])
             post = meta.get("postBalances", [])
-            amount = Decimal(abs(post[0] - pre[0]) if post and pre else 0) / Decimal(10 ** self.network_config.decimals)
-            
+            amount = Decimal(abs(post[0] - pre[0]) if post and pre else 0) / Decimal(
+                10**self.network_config.decimals
+            )
+
             return PaymentInfo(
-                transaction_id=result.get("transaction", {}).get("signatures", [""])[0] if result.get("transaction") else "",
+                transaction_id=result.get("transaction", {}).get("signatures", [""])[0]
+                if result.get("transaction")
+                else "",
                 wallet_address=message.get("accountKeys", [""])[0],
                 amount=amount,
                 currency=self.currency_symbol,
-                status=PaymentStatus.CONFIRMED if meta.get("err") is None else PaymentStatus.FAILED,
+                status=PaymentStatus.CONFIRMED
+                if meta.get("err") is None
+                else PaymentStatus.FAILED,
                 timestamp=datetime.fromtimestamp(result.get("blockTime", 0)),
                 block_height=result.get("slot"),
                 confirmations=0,
-                fee=Decimal(meta.get("fee", 0)) / Decimal(10 ** self.network_config.decimals),
-                from_address=message.get("accountKeys", [""])[0] if message.get("accountKeys") else "",
-                to_address=message.get("accountKeys", ["", ""])[1] if len(message.get("accountKeys", [])) > 1 else "",
-                raw_data=result
+                fee=Decimal(meta.get("fee", 0))
+                / Decimal(10**self.network_config.decimals),
+                from_address=message.get("accountKeys", [""])[0]
+                if message.get("accountKeys")
+                else "",
+                to_address=message.get("accountKeys", ["", ""])[1]
+                if len(message.get("accountKeys", [])) > 1
+                else "",
+                raw_data=result,
             )
-        except:
+        except Exception:
             return None
 
 
 class BitcoinParser:
     """Parser for Bitcoin transactions using RPC"""
-    
+
     def __init__(self, client, network_config, currency_symbol):
         self.client = client
         self.network_config = network_config
         self.currency_symbol = currency_symbol
-    
+
     async def get_transactions(self, address: str, limit: int) -> List[PaymentInfo]:
         """Get Bitcoin transactions via RPC"""
         await self.client.connect()
-        
+
         try:
             # Use Bitcoin RPC methods
-            result = await self.client.call("scantxoutset", ["start", [f"addr({address})"]],)
+            # scantxoutset can scan for unspent outputs matching the address
+            await self.client.call(
+                "scantxoutset",
+                ["start", [f"addr({address})"]],
+            )
             # Note: Bitcoin RPC has limited transaction history access
             # For full transaction history, users should use block explorers or indexers
             return []
-        except:
+        except Exception:
             return []
-    
+
     async def get_transaction(self, tx_id: str) -> Optional[PaymentInfo]:
         """Get Bitcoin transaction via RPC"""
         await self.client.connect()
-        
+
         try:
             tx = await self.client.call("getrawtransaction", [tx_id, True])
             if not tx:
                 return None
             return self.parse_transaction(tx)
-        except:
+        except Exception:
             return None
-    
+
     def parse_transaction(self, tx: dict, address: str = None) -> PaymentInfo:
         """Parse Bitcoin RPC transaction"""
         amount = Decimal(0)
         to_addr = ""
-        
+
         # Parse vout for receiving amounts
         for vout in tx.get("vout", []):
             value = Decimal(vout.get("value", 0))
             amount += value
             if vout.get("scriptPubKey", {}).get("addresses"):
                 to_addr = vout["scriptPubKey"]["addresses"][0]
-        
+
         from_addr = ""
         if tx.get("vin") and tx["vin"][0].get("txid"):
             from_addr = "<coinbase>" if "coinbase" in tx["vin"][0] else "<unknown>"
-        
+
         return PaymentInfo(
             transaction_id=tx.get("txid", ""),
             wallet_address=to_addr,
             amount=amount,
             currency=self.currency_symbol,
-            status=PaymentStatus.CONFIRMED if tx.get("confirmations", 0) > 0 else PaymentStatus.PENDING,
-            timestamp=datetime.fromtimestamp(tx.get("time", 0)) if tx.get("time") else datetime.utcnow(),
+            status=PaymentStatus.CONFIRMED
+            if tx.get("confirmations", 0) > 0
+            else PaymentStatus.PENDING,
+            timestamp=datetime.fromtimestamp(tx.get("time", 0))
+            if tx.get("time")
+            else datetime.utcnow(),
             block_height=tx.get("blockheight"),
             confirmations=tx.get("confirmations", 0),
             fee=None,
             from_address=from_addr,
             to_address=to_addr,
-            raw_data=tx
+            raw_data=tx,
         )

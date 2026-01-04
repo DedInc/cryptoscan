@@ -11,6 +11,7 @@ from typing import Any, Dict, Optional
 
 class PaymentStatus(Enum):
     """Payment transaction status"""
+
     PENDING = "pending"
     CONFIRMED = "confirmed"
     FAILED = "failed"
@@ -19,6 +20,7 @@ class PaymentStatus(Enum):
 @dataclass
 class PaymentInfo:
     """Payment information returned when a payment is detected"""
+
     transaction_id: str
     wallet_address: str
     amount: Decimal
@@ -36,6 +38,7 @@ class PaymentInfo:
 @dataclass
 class PaymentEvent:
     """Event emitted when payment is detected"""
+
     payment_info: PaymentInfo
     monitor_id: str
     network: str
@@ -45,12 +48,13 @@ class PaymentEvent:
 @dataclass
 class ErrorEvent:
     """Event emitted when an error occurs"""
+
     error: Exception
     monitor_id: str
     network: str
     timestamp: datetime = field(default_factory=datetime.utcnow)
     message: str = ""
-    
+
     def __post_init__(self):
         if not self.message:
             self.message = str(self.error)

@@ -9,4 +9,4 @@ This maintains backward compatibility while providing a cleaner architecture.
 from .websocket import WebSocketClient
 
 # Re-export for backward compatibility
-__all__ = ['WebSocketClient']
+__all__ = ["WebSocketClient"]

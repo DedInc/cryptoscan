@@ -3,7 +3,7 @@ WebSocket module for CryptoScan
 
 Provides a clean, modular WebSocket client system following SOLID principles:
 - ConnectionManager: Handles connection lifecycle
-- SubscriptionManager: Manages subscriptions and callbacks  
+- SubscriptionManager: Manages subscriptions and callbacks
 - MessageProcessor: Processes incoming messages
 - WebSocketClient: Facade that combines all components
 """
@@ -14,8 +14,8 @@ from .message_processor import WebSocketMessageProcessor
 from .client import WebSocketClient
 
 __all__ = [
-    'WebSocketConnectionManager',
-    'WebSocketSubscriptionManager', 
-    'WebSocketMessageProcessor',
-    'WebSocketClient'
+    "WebSocketConnectionManager",
+    "WebSocketSubscriptionManager",
+    "WebSocketMessageProcessor",
+    "WebSocketClient",
 ]
