@@ -4,17 +4,24 @@ Setup script for CryptoScan - Professional Crypto Payment Monitoring Library
 
 from setuptools import setup, find_packages
 import os
-import sys
-
-# Add package to path for version import
-sys.path.insert(0, os.path.dirname(__file__))
-from cryptoscan._version import __version__
+import re
 
 
 def read_file(filename):
     """Read file contents."""
     with open(os.path.join(os.path.dirname(__file__), filename), encoding="utf-8") as f:
         return f.read()
+
+
+def get_version():
+    """Extract version from _version.py without importing."""
+    version_file = read_file("cryptoscan/_version.py")
+    version_match = re.search(
+        r'^__version__\s*=\s*[\'"]([^\'"]*)[\'"]', version_file, re.MULTILINE
+    )
+    if version_match:
+        return version_match.group(1)
+    raise RuntimeError("Unable to find version string.")
 
 
 def read_requirements():
@@ -27,7 +34,7 @@ def read_requirements():
 
 setup(
     name="pycryptoscan",
-    version=__version__,
+    version=get_version(),
     author="DedInc.",
     author_email="visitanimation@gmail.com",
     description="Professional Real-Time Crypto Payment Monitoring Library for Python",
