@@ -1,7 +1,10 @@
 """Universal blockchain provider for ALL networks"""
 
+from __future__ import annotations
+
+import logging
 from decimal import Decimal
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from .config import UserConfig
 from .models import PaymentInfo
@@ -9,6 +12,11 @@ from .networks import NetworkConfig, get_network
 from .rpc_client import RPCClient
 from .adapters import get_adapter
 from .chain_parsers import EVMParser, SolanaParser, BitcoinParser
+
+logger = logging.getLogger(__name__)
+
+# Type alias for parser types
+ParserType = Union[EVMParser, SolanaParser, BitcoinParser, None]
 
 
 class UniversalProvider:
@@ -65,8 +73,13 @@ class UniversalProvider:
         if self.api_adapter:
             await self.api_adapter.close()
 
-    def _create_parser(self):
-        """Create appropriate parser for chain type"""
+    def _create_parser(self) -> ParserType:
+        """Create appropriate parser for chain type.
+
+        Returns:
+            Parser instance appropriate for the network's chain type,
+            or None if no parser is available for the chain type.
+        """
         chain_type = self.network_config.chain_type
 
         if chain_type == "evm":
@@ -113,11 +126,16 @@ class UniversalProvider:
     async def find_payment(
         self, wallet_address: str, expected_amount: Decimal, max_transactions: int = 10
     ) -> Optional[PaymentInfo]:
-        """Find payment matching expected amount"""
-        import logging
+        """Find payment matching expected amount.
 
-        logger = logging.getLogger(__name__)
+        Args:
+            wallet_address: The wallet address to search for payments
+            expected_amount: The exact amount to match
+            max_transactions: Maximum number of transactions to check
 
+        Returns:
+            PaymentInfo if a matching payment is found, None otherwise
+        """
         # For EVM parser, pass expected_amount for early match
         if self._parser and hasattr(self._parser, "get_transactions"):
             try:
@@ -155,11 +173,33 @@ class UniversalProvider:
         return None
 
     def _parse_evm_tx(
-        self, tx: dict, block: dict = None, receipt: dict = None
+        self,
+        tx: dict,
+        block: dict = None,
+        receipt: dict = None,
+        latest_block_num: int = None,
     ) -> PaymentInfo:
-        """Parse EVM transaction (used by RealtimeStrategy)"""
+        """Parse EVM transaction using the shared parser.
+
+        This method delegates to the EVMParser to avoid code duplication.
+        The parser handles all EVM-specific parsing logic.
+
+        Args:
+            tx: Transaction data dictionary
+            block: Optional block data dictionary
+            receipt: Optional transaction receipt dictionary
+            latest_block_num: Optional latest block number for confirmation calculation
+
+        Returns:
+            PaymentInfo with parsed transaction data
+
+        Raises:
+            NotImplementedError: If no EVM parser is available
+        """
         if self._parser and hasattr(self._parser, "parse_transaction"):
-            return self._parser.parse_transaction(tx, block, receipt)
+            return self._parser.parse_transaction(
+                tx, block, receipt, latest_block_num=latest_block_num
+            )
         raise NotImplementedError("EVM parser not available")
 
     def __repr__(self):

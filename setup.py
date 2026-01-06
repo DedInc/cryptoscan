@@ -4,6 +4,11 @@ Setup script for CryptoScan - Professional Crypto Payment Monitoring Library
 
 from setuptools import setup, find_packages
 import os
+import sys
+
+# Add package to path for version import
+sys.path.insert(0, os.path.dirname(__file__))
+from cryptoscan._version import __version__
 
 
 def read_file(filename):
@@ -22,7 +27,7 @@ def read_requirements():
 
 setup(
     name="pycryptoscan",
-    version="2.0.2",
+    version=__version__,
     author="DedInc.",
     author_email="visitanimation@gmail.com",
     description="Professional Real-Time Crypto Payment Monitoring Library for Python",

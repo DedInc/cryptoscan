@@ -22,6 +22,9 @@ from .subscription_manager import WebSocketSubscriptionManager
 
 logger = logging.getLogger(__name__)
 
+# Maximum WebSocket message size (1MB) to prevent memory exhaustion
+MAX_MESSAGE_SIZE = 1 * 1024 * 1024
+
 
 class WebSocketMessageProcessor:
     """Processes incoming WebSocket messages"""
@@ -67,6 +70,13 @@ class WebSocketMessageProcessor:
 
     async def _process_message(self, message: str) -> None:
         """Process a single incoming message"""
+        # Validate message size to prevent memory exhaustion
+        if len(message) > MAX_MESSAGE_SIZE:
+            logger.warning(
+                f"WebSocket message too large ({len(message)} bytes), ignoring"
+            )
+            return
+
         try:
             data = json.loads(message)
 
@@ -97,15 +107,27 @@ class WebSocketMessageProcessor:
         ):
             logger.warning("WebSocket connection closed, attempting reconnect...")
 
-            # Clear subscriptions since they'll be lost
+            # Clear active subscriptions (server-side subscription IDs are now invalid)
+            # Note: The subscription registry is preserved for restoration
             self.subscriptions.clear_subscriptions()
 
             # Attempt reconnection
             if await self.connection.reconnect():
-                # TODO: In a full implementation, we should restore subscriptions here
-                logger.info(
-                    "Reconnected successfully - subscriptions need to be restored"
-                )
+                logger.info("Reconnected successfully, restoring subscriptions...")
+
+                # Restore all subscriptions from the registry
+                try:
+                    restored_count = await self.subscriptions.restore_subscriptions()
+                    if restored_count > 0:
+                        logger.info(
+                            f"Restored {restored_count} subscription(s) after reconnection"
+                        )
+                    else:
+                        logger.debug("No subscriptions to restore")
+                except Exception as restore_error:
+                    logger.error(f"Error restoring subscriptions: {restore_error}")
+                    # Continue anyway - partial restoration is better than none
+
                 return True
             else:
                 logger.error("Failed to reconnect WebSocket")
@@ -113,7 +135,7 @@ class WebSocketMessageProcessor:
 
         else:
             logger.error(f"WebSocket error: {error}")
-            await asyncio.sleep(1)  # Brief pause before continuing
+            await asyncio.sleep(0.5)  # Brief pause before continuing
             return True  # Continue trying
 
     def stop(self) -> None:

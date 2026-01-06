@@ -3,10 +3,15 @@ Data models for CryptoScan
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
 from typing import Any, Dict, Optional
+
+
+def _utc_now() -> datetime:
+    """Get current UTC time (timezone-aware)."""
+    return datetime.now(timezone.utc)
 
 
 class PaymentStatus(Enum):
@@ -17,7 +22,7 @@ class PaymentStatus(Enum):
     FAILED = "failed"
 
 
-@dataclass
+@dataclass(slots=True)
 class PaymentInfo:
     """Payment information returned when a payment is detected"""
 
@@ -35,14 +40,14 @@ class PaymentInfo:
     raw_data: Dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass
+@dataclass(slots=True)
 class PaymentEvent:
     """Event emitted when payment is detected"""
 
     payment_info: PaymentInfo
     monitor_id: str
     network: str
-    detected_at: datetime = field(default_factory=datetime.utcnow)
+    detected_at: datetime = field(default_factory=_utc_now)
 
 
 @dataclass
@@ -52,7 +57,7 @@ class ErrorEvent:
     error: Exception
     monitor_id: str
     network: str
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=_utc_now)
     message: str = ""
 
     def __post_init__(self):

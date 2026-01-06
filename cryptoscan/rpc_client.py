@@ -31,6 +31,11 @@ class RPCClient:
     """
     Async WebSocket/HTTP RPC client with automatic reconnection
     Supports both WebSocket and HTTP RPC endpoints
+
+    Features:
+    - Rate limiting via semaphore to prevent node overload
+    - Automatic retries with exponential backoff
+    - HTTP/2 support for improved performance
     """
 
     def __init__(
@@ -38,6 +43,7 @@ class RPCClient:
         endpoint: str,
         user_config: Optional[UserConfig] = None,
         use_websocket: bool = True,
+        max_concurrent_requests: int = 10,
     ):
         self.endpoint = endpoint
         self.use_websocket = use_websocket and endpoint.startswith(("ws://", "wss://"))
@@ -49,6 +55,9 @@ class RPCClient:
         self._reconnect_attempts = 0
         self._request_id = 0
         self._lock = asyncio.Lock()
+
+        # Rate limiting: limit concurrent requests to prevent node overload
+        self._rate_limiter = asyncio.Semaphore(max_concurrent_requests)
 
     async def connect(self):
         """Establish connection"""
@@ -94,68 +103,88 @@ class RPCClient:
     async def call(
         self, method: str, params: Any = None, timeout: Optional[float] = None
     ) -> Any:
-        """Make RPC call with automatic retries"""
-        async with self._lock:
-            self._request_id += 1
-            request_id = self._request_id
+        """Make RPC call with automatic retries and rate limiting.
 
-        payload = {
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "method": method,
-            "params": params or [],
-        }
+        Args:
+            method: The RPC method to call
+            params: Parameters for the RPC method
+            timeout: Optional timeout override in seconds
 
-        timeout = timeout or self.config.timeout
+        Returns:
+            The result from the RPC call
 
-        # Use tenacity for retries
-        async for attempt in AsyncRetrying(
-            stop=stop_after_attempt(self.config.max_retries + 1),
-            wait=wait_exponential(
-                multiplier=self.config.retry_delay, min=self.config.retry_delay, max=10
-            ),
-            retry=retry_if_exception_type((httpx.TimeoutException, httpx.HTTPError)),
-            reraise=True,
-        ):
-            with attempt:
-                await self._ensure_http_client()
+        Raises:
+            RPCError: If the RPC returns an error
+            CSTimeoutError: If the request times out
+            CSConnectionError: If connection fails
+        """
+        # Rate limiting: wait for semaphore slot
+        async with self._rate_limiter:
+            async with self._lock:
+                self._request_id += 1
+                request_id = self._request_id
 
-                try:
-                    response = await self._http_client.post(
-                        self.endpoint, json=payload, timeout=timeout
-                    )
+            payload = {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "method": method,
+                "params": params or [],
+            }
 
-                    response.raise_for_status()
-                    data = response.json()
+            timeout = timeout or self.config.timeout
 
-                    if "error" in data:
-                        error = data["error"]
-                        raise RPCError(
-                            message=error.get("message", "Unknown RPC error"),
-                            code=error.get("code"),
-                            data=error.get("data"),
+            # Use tenacity for retries
+            async for attempt in AsyncRetrying(
+                stop=stop_after_attempt(self.config.max_retries + 1),
+                wait=wait_exponential(
+                    multiplier=self.config.retry_delay,
+                    min=self.config.retry_delay,
+                    max=10,
+                ),
+                retry=retry_if_exception_type(
+                    (httpx.TimeoutException, httpx.HTTPError)
+                ),
+                reraise=True,
+            ):
+                with attempt:
+                    await self._ensure_http_client()
+
+                    try:
+                        response = await self._http_client.post(
+                            self.endpoint, json=payload, timeout=timeout
                         )
 
-                    return data.get("result")
+                        response.raise_for_status()
+                        data = response.json()
 
-                except httpx.TimeoutException as e:
-                    logger.warning(
-                        f"RPC timeout (attempt {attempt.retry_state.attempt_number}): {method}"
-                    )
-                    raise CSTimeoutError(f"RPC call timed out after {timeout}s", e)
+                        if "error" in data:
+                            error = data["error"]
+                            raise RPCError(
+                                message=error.get("message", "Unknown RPC error"),
+                                code=error.get("code"),
+                                data=error.get("data"),
+                            )
 
-                except httpx.HTTPError as e:
-                    logger.warning(
-                        f"RPC HTTP error (attempt {attempt.retry_state.attempt_number}): {method}"
-                    )
-                    raise CSConnectionError(f"RPC call failed: {str(e)}", e)
+                        return data.get("result")
 
-                except RPCError:
-                    raise
+                    except httpx.TimeoutException as e:
+                        logger.warning(
+                            f"RPC timeout (attempt {attempt.retry_state.attempt_number}): {method}"
+                        )
+                        raise CSTimeoutError(f"RPC call timed out after {timeout}s", e)
 
-                except Exception as e:
-                    logger.error(f"Unexpected RPC error: {str(e)}")
-                    raise CSConnectionError(f"Unexpected error: {str(e)}", e)
+                    except httpx.HTTPError as e:
+                        logger.warning(
+                            f"RPC HTTP error (attempt {attempt.retry_state.attempt_number}): {method}"
+                        )
+                        raise CSConnectionError(f"RPC call failed: {str(e)}", e)
+
+                    except RPCError:
+                        raise
+
+                    except Exception as e:
+                        logger.error(f"Unexpected RPC error: {str(e)}")
+                        raise CSConnectionError(f"Unexpected error: {str(e)}", e)
 
     @asynccontextmanager
     async def batch(self):

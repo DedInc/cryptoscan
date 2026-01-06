@@ -10,6 +10,7 @@ No network needs to be "hardcoded" - the system is fully extensible.
 """
 
 import re
+import threading
 from dataclasses import dataclass
 from typing import Optional
 
@@ -39,7 +40,13 @@ class NetworkConfig:
     rest_api_base: Optional[str] = None
     rest_transactions_path: Optional[str] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
+        """Initialize computed fields after dataclass creation.
+
+        This method:
+        - Sets default empty list for aliases if None
+        - Compiles the address validation regex pattern for performance
+        """
         if self.aliases is None:
             self.aliases = []
         if self.address_pattern:
@@ -48,7 +55,15 @@ class NetworkConfig:
             self._compiled_pattern = None
 
     def validate_address(self, address: str) -> bool:
-        """Validate address format"""
+        """Validate address format against the network's address pattern.
+
+        Args:
+            address: The wallet address to validate
+
+        Returns:
+            True if address matches the pattern or no pattern is defined,
+            False if address doesn't match the expected format
+        """
         if not self._compiled_pattern:
             return True
         return bool(self._compiled_pattern.match(address))
@@ -59,7 +74,9 @@ class NetworkConfig:
 # This eliminates the need for a hardcoded NETWORKS dictionary
 
 # Registry for user-added networks (optional convenience)
+# Thread-safe access via lock
 _registered_networks = {}
+_networks_lock = threading.Lock()
 
 
 def get_network(identifier: str) -> Optional[NetworkConfig]:
@@ -79,25 +96,27 @@ def get_network(identifier: str) -> Optional[NetworkConfig]:
     """
     identifier = identifier.lower().strip()
 
-    # Direct match
-    if identifier in _registered_networks:
-        return _registered_networks[identifier]
+    with _networks_lock:
+        # Direct match
+        if identifier in _registered_networks:
+            return _registered_networks[identifier]
 
-    # Check aliases
-    for network in _registered_networks.values():
-        if identifier in network.aliases:
-            return network
+        # Check aliases
+        for network in _registered_networks.values():
+            if identifier in network.aliases:
+                return network
 
     return None
 
 
 def list_networks() -> list[str]:
     """Get all registered network names and aliases"""
-    all_names = set()
-    for name, config in _registered_networks.items():
-        all_names.add(name)
-        all_names.update(config.aliases)
-    return sorted(all_names)
+    with _networks_lock:
+        all_names = set()
+        for name, config in _registered_networks.items():
+            all_names.add(name)
+            all_names.update(config.aliases)
+        return sorted(all_names)
 
 
 def register_network(config: NetworkConfig) -> None:
@@ -112,7 +131,8 @@ def register_network(config: NetworkConfig) -> None:
         to create_monitor() without registering it first.
     """
     key = config.name.lower().strip()
-    _registered_networks[key] = config
+    with _networks_lock:
+        _registered_networks[key] = config
 
 
 def create_network_config(

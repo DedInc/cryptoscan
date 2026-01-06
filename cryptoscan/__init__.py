@@ -3,6 +3,7 @@ CryptoScan - Professional Async Crypto Payment Monitoring Library
 Production-ready blockchain payment monitoring
 """
 
+from ._version import __version__
 from .models import PaymentInfo, PaymentStatus, PaymentEvent, ErrorEvent
 from .config import UserConfig, ProxyConfig, create_user_config
 from .monitoring import PaymentMonitor
@@ -12,6 +13,30 @@ from .exceptions import (
     PaymentNotFoundError,
     CryptoScanError,
     ValidationError,
+    ParserError,
+    BlockFetchError,
+    AdapterError,
+    RPCError,
+)
+from .security import (
+    validate_rpc_url,
+    validate_ws_url,
+    mask_address,
+    mask_transaction_id,
+)
+from .metrics import (
+    MetricsCollector,
+    RequestMetric,
+    MetricsSummary,
+    get_global_metrics,
+    enable_global_metrics,
+    disable_global_metrics,
+)
+from .config import (
+    MAX_BLOCKS_TO_SCAN,
+    BLOCKS_PER_TX_MULTIPLIER,
+    DEFAULT_HTTP_TIMEOUT,
+    DEFAULT_MAX_RETRIES,
 )
 from .universal_provider import UniversalProvider
 from .networks import (
@@ -26,8 +51,9 @@ from .networks import (
 # Register common networks automatically
 register_common_networks()
 
-__version__ = "2.0.0"
 __all__ = [
+    # Version
+    "__version__",
     # Core API
     "create_monitor",
     "get_supported_networks",
@@ -44,6 +70,11 @@ __all__ = [
     "UserConfig",
     "ProxyConfig",
     "create_user_config",
+    # Constants
+    "MAX_BLOCKS_TO_SCAN",
+    "BLOCKS_PER_TX_MULTIPLIER",
+    "DEFAULT_HTTP_TIMEOUT",
+    "DEFAULT_MAX_RETRIES",
     # Models
     "PaymentInfo",
     "PaymentStatus",
@@ -54,4 +85,20 @@ __all__ = [
     "PaymentNotFoundError",
     "ValidationError",
     "CryptoScanError",
+    "ParserError",
+    "BlockFetchError",
+    "AdapterError",
+    "RPCError",
+    # Security utilities
+    "validate_rpc_url",
+    "validate_ws_url",
+    "mask_address",
+    "mask_transaction_id",
+    # Metrics
+    "MetricsCollector",
+    "RequestMetric",
+    "MetricsSummary",
+    "get_global_metrics",
+    "enable_global_metrics",
+    "disable_global_metrics",
 ]

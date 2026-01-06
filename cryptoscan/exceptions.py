@@ -50,3 +50,37 @@ class TimeoutError(NetworkError):
     """Request timeout errors"""
 
     pass
+
+
+class ParserError(CryptoScanError):
+    """Transaction parsing error"""
+
+    def __init__(
+        self, message: str, transaction_id: str = None, original_error: Exception = None
+    ):
+        super().__init__(message)
+        self.message = message
+        self.transaction_id = transaction_id
+        self.original_error = original_error
+
+
+class BlockFetchError(NetworkError):
+    """Block retrieval error"""
+
+    def __init__(
+        self, message: str, block_number: int = None, original_error: Exception = None
+    ):
+        super().__init__(message, original_error)
+        self.block_number = block_number
+
+
+class AdapterError(CryptoScanError):
+    """API adapter errors"""
+
+    def __init__(
+        self, message: str, adapter_name: str = None, original_error: Exception = None
+    ):
+        super().__init__(message)
+        self.message = message
+        self.adapter_name = adapter_name
+        self.original_error = original_error

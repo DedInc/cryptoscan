@@ -9,6 +9,14 @@ import asyncio
 import logging
 from typing import Optional
 
+from tenacity import (
+    AsyncRetrying,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+    RetryError,
+)
+
 try:
     import websockets
 
@@ -40,7 +48,7 @@ class WebSocketConnectionManager:
             )
 
     async def connect(self) -> None:
-        """Establish WebSocket connection"""
+        """Establish WebSocket connection with timeout protection"""
         if not WEBSOCKETS_AVAILABLE:
             raise CSConnectionError(
                 "websockets library not installed. Install with: pip install websockets",
@@ -48,14 +56,22 @@ class WebSocketConnectionManager:
             )
 
         try:
-            self._ws = await websockets.connect(
-                self.ws_url,
-                ping_interval=self.config.ws_ping_interval,
-                ping_timeout=self.config.ws_ping_timeout,
-                close_timeout=10,
+            # Wrap connection in timeout to prevent indefinite hangs
+            self._ws = await asyncio.wait_for(
+                websockets.connect(
+                    self.ws_url,
+                    ping_interval=self.config.ws_ping_interval,
+                    ping_timeout=self.config.ws_ping_timeout,
+                    close_timeout=10,
+                ),
+                timeout=self.config.timeout,
             )
             self._connected = True
             logger.info(f"Connected to WebSocket: {self.ws_url}")
+        except asyncio.TimeoutError:
+            raise CSConnectionError(
+                f"WebSocket connection timed out after {self.config.timeout}s", None
+            )
         except Exception as e:
             raise CSConnectionError(f"Failed to connect to WebSocket: {str(e)}", e)
 
@@ -85,21 +101,32 @@ class WebSocketConnectionManager:
             return await self._ws.recv()
 
     async def reconnect(self) -> bool:
-        """Attempt to reconnect WebSocket with exponential backoff"""
-        for attempt in range(self.config.ws_max_reconnect_attempts):
-            try:
-                logger.info(
-                    f"Reconnection attempt {attempt + 1}/{self.config.ws_max_reconnect_attempts}"
-                )
-                await asyncio.sleep(self.config.ws_reconnect_delay * (attempt + 1))
-                await self.connect()
-                logger.info("Reconnected successfully")
-                return True
-            except Exception as e:
-                logger.error(f"Reconnection attempt {attempt + 1} failed: {e}")
-
-        logger.error("Max reconnection attempts reached")
-        return False
+        """Attempt to reconnect WebSocket with exponential backoff using tenacity"""
+        try:
+            async for attempt in AsyncRetrying(
+                stop=stop_after_attempt(self.config.ws_max_reconnect_attempts),
+                wait=wait_exponential(
+                    multiplier=self.config.ws_reconnect_delay,
+                    min=self.config.ws_reconnect_delay,
+                    max=30,
+                ),
+                retry=retry_if_exception_type(Exception),
+                reraise=True,
+            ):
+                with attempt:
+                    attempt_num = attempt.retry_state.attempt_number
+                    logger.info(
+                        f"Reconnection attempt {attempt_num}/{self.config.ws_max_reconnect_attempts}"
+                    )
+                    await self.connect()
+                    logger.info("Reconnected successfully")
+                    return True
+        except RetryError:
+            logger.error("Max reconnection attempts reached")
+            return False
+        except Exception as e:
+            logger.error(f"Reconnection failed: {e}")
+            return False
 
     def is_connected(self) -> bool:
         """Check if WebSocket is connected"""

@@ -6,11 +6,17 @@ import asyncio
 import logging
 from abc import ABC, abstractmethod
 from decimal import Decimal
-from typing import Optional
+from typing import TYPE_CHECKING, Awaitable, Callable, Optional
 
 from ..config import UserConfig
 from ..exceptions import NetworkError
 from ..models import PaymentInfo
+
+if TYPE_CHECKING:
+    from ..universal_provider import UniversalProvider
+
+PaymentCallback = Callable[[PaymentInfo], Awaitable[None]]
+ErrorCallback = Callable[[Exception], Awaitable[None]]
 
 logger = logging.getLogger(__name__)
 
@@ -20,11 +26,11 @@ class MonitoringStrategy(ABC):
 
     def __init__(
         self,
-        provider,
+        provider: "UniversalProvider",
         wallet_address: str,
         expected_amount: Decimal,
         config: UserConfig,
-    ):
+    ) -> None:
         self.provider = provider
         self.wallet_address = wallet_address
         self.expected_amount = expected_amount
@@ -32,11 +38,13 @@ class MonitoringStrategy(ABC):
         self._stop_event = asyncio.Event()
 
     @abstractmethod
-    async def monitor(self, payment_callback, error_callback) -> None:
+    async def monitor(
+        self, payment_callback: PaymentCallback, error_callback: ErrorCallback
+    ) -> None:
         """Execute monitoring strategy"""
         pass
 
-    def stop(self):
+    def stop(self) -> None:
         """Signal strategy to stop"""
         self._stop_event.set()
 
@@ -63,7 +71,9 @@ class PollingStrategy(MonitoringStrategy):
         self._start_timestamp = None  # Track when monitoring started
         self._seen_tx_ids = set()  # Track already-seen transactions
 
-    async def monitor(self, payment_callback, error_callback) -> None:
+    async def monitor(
+        self, payment_callback: PaymentCallback, error_callback: ErrorCallback
+    ) -> None:
         """Poll for payments at regular intervals"""
         import time
 
@@ -153,7 +163,9 @@ class RealtimeStrategy(MonitoringStrategy):
         self._error_callback = None
         self._start_block = None  # Track starting block to ignore old transactions
 
-    async def monitor(self, payment_callback, error_callback) -> None:
+    async def monitor(
+        self, payment_callback: PaymentCallback, error_callback: ErrorCallback
+    ) -> None:
         """Monitor using WebSocket subscriptions"""
         import importlib.util
 
@@ -234,7 +246,11 @@ class RealtimeStrategy(MonitoringStrategy):
     async def _check_block_for_payment(
         self, block_header: dict
     ) -> Optional[PaymentInfo]:
-        """Check if block contains the expected payment"""
+        """Check if block contains the expected payment.
+
+        Uses the provider's parser to parse transactions, avoiding code duplication.
+        The parser handles all the EVM-specific logic for parsing transactions.
+        """
         block_hash = block_header.get("hash")
         if not block_hash:
             return None
@@ -247,17 +263,22 @@ class RealtimeStrategy(MonitoringStrategy):
             if not block or not block.get("transactions"):
                 return None
 
+            # Get the latest block number for confirmation calculation
+            latest_block_hex = await self.provider.client.call("eth_blockNumber", [])
+            latest_block_num = int(latest_block_hex, 16)
+
             for tx in block["transactions"]:
                 to_addr = tx.get("to") or ""
                 if to_addr.lower() == self.wallet_address.lower():
-                    value_wei = int(tx.get("value", "0x0"), 16)
-                    amount = Decimal(value_wei) / Decimal(
-                        10**self.provider.network_config.decimals
+                    # Use the shared parser to parse the transaction
+                    # This eliminates duplicate parsing logic
+                    payment = self.provider._parse_evm_tx(
+                        tx, block, latest_block_num=latest_block_num
                     )
 
-                    # Compare with proper precision (normalize both values)
-                    if amount.normalize() == self.expected_amount.normalize():
-                        return self.provider._parse_evm_tx(tx, block)
+                    # Compare amounts with proper precision (normalize both values)
+                    if payment.amount.normalize() == self.expected_amount.normalize():
+                        return payment
 
         except Exception as e:
             logger.error(f"Error checking block for payment: {e}")

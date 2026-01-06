@@ -142,6 +142,11 @@ def create_monitor(
             ws_url=ws_url if ws_url is not None else network_config.ws_url,
         )
 
+    # Validate expected_amount
+    expected_decimal = Decimal(str(expected_amount))
+    if expected_decimal <= 0:
+        raise ValidationError("Expected amount must be positive")
+
     # Create or configure user config
     if user_config is None:
         user_config = UserConfig()

@@ -2,7 +2,7 @@
 
 **Professional Real-Time Crypto Payment Monitoring Library for Python**
 
-A fast, intelligent, production-ready Python library for monitoring cryptocurrency payments in **real-time** across multiple blockchain networks. Built with WebSocket subscriptions, automatic fallback to polling, HTTP/2 support, and enterprise-grade reliability.
+A fast, intelligent, production-ready Python library for monitoring cryptocurrency payments in **real-time** across multiple blockchain networks. Built with WebSocket subscriptions, automatic fallback to polling, HTTP/2 support, enterprise-grade reliability, and built-in security features.
 
 <div align="center">
 
@@ -35,6 +35,14 @@ A fast, intelligent, production-ready Python library for monitoring cryptocurren
 - 🎯 **Exact Matching**: Precise payment amount detection with Decimal
 - 📊 **Event System**: Payment and error callbacks with decorators
 - 🛡️ **Production Ready**: Tenacity retry logic, comprehensive error handling
+
+### Security & Monitoring
+- 🔐 **Security Utilities**: URL validation, address masking for safe logging
+- 📈 **Metrics Collection**: Optional performance monitoring and statistics
+- 🚦 **Rate Limiting**: Built-in request throttling to prevent node overload
+- 🔄 **Auto-Reconnect**: WebSocket subscription restoration after disconnection
+- 🧵 **Thread-Safe**: Thread-safe network registry for multi-threaded applications
+
 
 ## 🚀 Quick Start
 
@@ -475,7 +483,15 @@ user_config = UserConfig(
     max_retries=5,
     retry_delay=2.0,
     ssl_verify=True,
-    connector_limit=50
+    connector_limit=50,
+    # WebSocket configuration
+    ws_ping_interval=20.0,
+    ws_ping_timeout=10.0,
+    ws_max_reconnect_attempts=5,
+    ws_reconnect_delay=2.0,
+    # Block scanning configuration
+    max_blocks_to_scan=100,
+    blocks_per_tx_multiplier=5
 )
 
 monitor = create_monitor(
@@ -589,6 +605,188 @@ monitor = create_monitor(
 )
 ```
 
+## 🔐 Security & Monitoring Features
+
+### Quick Reference
+
+| Feature | Import | Purpose |
+|---------|--------|---------|
+| **URL Validation** | `validate_rpc_url`, `validate_ws_url` | Verify endpoint safety |
+| **Data Masking** | `mask_address`, `mask_transaction_id` | Protect sensitive data in logs |
+| **Metrics** | `enable_global_metrics`, `get_global_metrics` | Performance monitoring |
+| **Constants** | `MAX_BLOCKS_TO_SCAN`, `DEFAULT_HTTP_TIMEOUT` | Configuration values |
+| **Exceptions** | `ParserError`, `BlockFetchError`, `AdapterError` | Specific error types |
+
+### Security Utilities
+
+CryptoScan includes built-in security utilities for safe URL validation and data masking:
+
+```python
+from cryptoscan import (
+    validate_rpc_url,
+    validate_ws_url,
+    mask_address,
+    mask_transaction_id
+)
+
+# Validate RPC URLs before use
+if validate_rpc_url("https://ethereum-rpc.publicnode.com"):
+    print("✅ Valid RPC URL")
+
+if validate_ws_url("wss://ethereum-rpc.publicnode.com"):
+    print("✅ Valid WebSocket URL")
+
+# Mask sensitive data for logging
+address = "0x742d35Cc6634C0532925a3b844Bc9e7595f8fE23"
+masked = mask_address(address)
+print(f"Address: {masked}")  # Output: 0x742d35...f8fE23
+
+tx_id = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+masked_tx = mask_transaction_id(tx_id)
+print(f"TX: {masked_tx}")  # Output: 0x1234567890abcd...
+```
+
+### Metrics Collection
+
+Monitor performance and collect statistics for debugging and optimization:
+
+```python
+from cryptoscan import (
+    create_monitor,
+    enable_global_metrics,
+    get_global_metrics,
+    MetricsCollector
+)
+import asyncio
+
+async def metrics_example():
+    # Enable global metrics collection
+    enable_global_metrics()
+    
+    # Create monitor as usual
+    monitor = create_monitor(
+        network="ethereum",
+        wallet_address="0x...",
+        expected_amount="1.0",
+        auto_stop=True
+    )
+    
+    @monitor.on_payment
+    async def on_payment(event):
+        # Get metrics summary
+        metrics = get_global_metrics()
+        if metrics:
+            print(f"📊 Total Requests: {metrics.total_requests}")
+            print(f"⏱️  Avg Response Time: {metrics.avg_response_time:.2f}s")
+            print(f"✅ Success Rate: {metrics.success_rate:.1%}")
+            print(f"❌ Failed Requests: {metrics.failed_requests}")
+    
+    await monitor.start()
+
+asyncio.run(metrics_example())
+```
+
+### Advanced Configuration Constants
+
+Access and customize internal configuration constants:
+
+```python
+from cryptoscan import (
+    MAX_BLOCKS_TO_SCAN,
+    BLOCKS_PER_TX_MULTIPLIER,
+    DEFAULT_HTTP_TIMEOUT,
+    DEFAULT_MAX_RETRIES,
+    UserConfig
+)
+
+# Use default constants
+print(f"Max blocks to scan: {MAX_BLOCKS_TO_SCAN}")
+print(f"Default timeout: {DEFAULT_HTTP_TIMEOUT}s")
+print(f"Default retries: {DEFAULT_MAX_RETRIES}")
+
+# Override in UserConfig
+custom_config = UserConfig(
+    timeout=DEFAULT_HTTP_TIMEOUT * 2,  # Double the default
+    max_retries=DEFAULT_MAX_RETRIES + 2,  # Add 2 more retries
+    max_blocks_to_scan=MAX_BLOCKS_TO_SCAN * 2  # Scan more blocks
+)
+```
+
+### Enhanced Error Handling
+
+New specific exception types for better error handling:
+
+```python
+from cryptoscan import (
+    create_monitor,
+    ParserError,
+    BlockFetchError,
+    AdapterError,
+    RPCError,
+    NetworkError
+)
+
+async def advanced_error_handling():
+    monitor = create_monitor(
+        network="ethereum",
+        wallet_address="0x...",
+        expected_amount="1.0"
+    )
+    
+    @monitor.on_error
+    async def on_error(event):
+        error = event.error
+        
+        if isinstance(error, ParserError):
+            print(f"❌ Transaction parsing failed: {error.message}")
+            print(f"   TX ID: {error.transaction_id}")
+        
+        elif isinstance(error, BlockFetchError):
+            print(f"❌ Block retrieval failed: {error.message}")
+            print(f"   Block: #{error.block_number}")
+        
+        elif isinstance(error, AdapterError):
+            print(f"❌ API adapter error: {error.message}")
+            print(f"   Adapter: {error.adapter_name}")
+        
+        elif isinstance(error, RPCError):
+            print(f"❌ RPC error: {error.message}")
+            print(f"   Code: {error.code}")
+        
+        elif isinstance(error, NetworkError):
+            print(f"❌ Network error: {error.message}")
+    
+    await monitor.start()
+```
+
+### Rate Limiting
+
+CryptoScan includes built-in rate limiting to prevent overwhelming RPC nodes:
+
+```python
+# Rate limiting is automatically enabled by default
+# Default: 10 concurrent requests per RPC client
+
+# The library manages this internally when you use create_monitor()
+monitor = create_monitor(
+    network="ethereum",
+    wallet_address="0x...",
+    expected_amount="1.0"
+)
+# Rate limiting is handled automatically ✅
+
+# For advanced use cases with custom UserConfig:
+from cryptoscan import UserConfig
+
+user_config = UserConfig(
+    timeout=30.0,        # Request timeout
+    max_retries=3,       # Retry failed requests
+    connector_limit=100  # HTTP connection pool size
+)
+```
+
+**Note:** Rate limiting is managed internally and works automatically. The default of 10 concurrent requests provides a good balance between performance and node protection.
+
 ## 🔌 Integration Examples
 
 ### Aiogram v3.x (Telegram Bot) Integration
@@ -694,8 +892,13 @@ def create_monitor(
     max_transactions: int = 10,      # Max transactions to check per poll
     auto_stop: bool = False,         # Stop after finding payment
     rpc_url: str = None,             # Custom RPC URL (can be wss://)
+    ws_url: str = None,              # Custom WebSocket URL (for real-time mode)
     realtime: bool = None,           # None=auto-detect, True=force, False=polling
     min_confirmations: int = 1,      # Minimum confirmations required (default: 1)
+    user_config: UserConfig = None,  # User configuration (proxy, timeout, etc.)
+    monitor_id: str = None,          # Custom monitor identifier
+    timeout: float = None,           # Override default timeout
+    max_retries: int = None,         # Override default max retries
     **kwargs                         # Additional configuration
 ) -> PaymentMonitor
 ```
@@ -753,7 +956,7 @@ class PaymentInfo:
 Direct access to the universal provider for advanced use cases.
 
 ```python
-from cryptoscan import UniversalProvider, NetworkConfig
+from cryptoscan import UniversalProvider, NetworkConfig, UserConfig
 
 # Create provider for any network
 network_config = NetworkConfig(
@@ -765,7 +968,17 @@ network_config = NetworkConfig(
     decimals=18
 )
 
-provider = UniversalProvider(network=network_config)
+# Optional: Configure rate limiting and other settings
+user_config = UserConfig(
+    timeout=60,
+    max_retries=5,
+    connector_limit=100  # Max concurrent connections
+)
+
+provider = UniversalProvider(
+    network=network_config,
+    user_config=user_config
+)
 await provider.connect()
 
 # Get recent transactions
@@ -775,6 +988,118 @@ transactions = await provider.get_recent_transactions(
 )
 
 await provider.close()
+```
+
+### Security Functions
+
+Functions for validating URLs and masking sensitive data.
+
+```python
+from cryptoscan import (
+    validate_rpc_url,
+    validate_ws_url,
+    mask_address,
+    mask_transaction_id
+)
+
+# Validate URLs
+validate_rpc_url(url: str) -> bool
+validate_ws_url(url: str) -> bool
+
+# Mask sensitive data
+mask_address(address: str, prefix_length: int = 8, suffix_length: int = 6) -> str
+mask_transaction_id(tx_id: str, visible_length: int = 16) -> str
+```
+
+### Metrics Functions
+
+Functions for collecting and retrieving performance metrics.
+
+```python
+from cryptoscan import (
+    MetricsCollector,
+    RequestMetric,
+    MetricsSummary,
+    enable_global_metrics,
+    disable_global_metrics,
+    get_global_metrics
+)
+
+# Enable/disable global metrics
+enable_global_metrics() -> None
+disable_global_metrics() -> None
+
+# Get metrics summary
+get_global_metrics() -> MetricsSummary | None
+
+# MetricsSummary attributes
+@dataclass
+class MetricsSummary:
+    total_requests: int          # Total number of requests
+    successful_requests: int     # Number of successful requests
+    failed_requests: int         # Number of failed requests
+    avg_response_time: float     # Average response time in seconds
+    min_response_time: float     # Minimum response time
+    max_response_time: float     # Maximum response time
+    success_rate: float          # Success rate (0.0 to 1.0)
+```
+
+### Configuration Constants
+
+Exported configuration constants for customization.
+
+```python
+from cryptoscan import (
+    MAX_BLOCKS_TO_SCAN,           # Default: 100
+    BLOCKS_PER_TX_MULTIPLIER,     # Default: 5
+    DEFAULT_HTTP_TIMEOUT,         # Default: 30.0 seconds
+    DEFAULT_MAX_RETRIES,          # Default: 3
+    DEFAULT_WS_PING_INTERVAL,     # Default: 20.0 seconds
+    DEFAULT_WS_PING_TIMEOUT,      # Default: 10.0 seconds
+)
+```
+
+### Exception Classes
+
+Specific exception types for granular error handling.
+
+```python
+from cryptoscan import (
+    CryptoScanError,        # Base exception
+    ValidationError,        # Invalid input/configuration
+    NetworkError,           # Network-related errors
+    ConnectionError,        # Connection failures
+    TimeoutError,           # Request timeouts
+    PaymentNotFoundError,   # Payment not found
+    ParserError,            # Transaction parsing errors
+    BlockFetchError,        # Block retrieval errors
+    AdapterError,           # API adapter errors
+    RPCError,               # RPC-specific errors
+)
+
+# ParserError attributes
+class ParserError(CryptoScanError):
+    message: str
+    transaction_id: str | None
+    original_error: Exception | None
+
+# BlockFetchError attributes
+class BlockFetchError(NetworkError):
+    message: str
+    block_number: int | None
+    original_error: Exception | None
+
+# AdapterError attributes
+class AdapterError(CryptoScanError):
+    message: str
+    adapter_name: str | None
+    original_error: Exception | None
+
+# RPCError attributes
+class RPCError(NetworkError):
+    message: str
+    code: int | None
+    data: Any | None
 ```
 
 ## 🔧 Configuration
@@ -841,6 +1166,10 @@ monitor = create_monitor(
 4. **Tenacity Retry**: Intelligent exponential backoff for high reliability
 5. **Async Concurrent**: Use `asyncio.gather()` for multi-chain monitoring
 6. **Optimize Polling**: Balance poll interval with responsiveness needs
+7. **Rate Limiting**: Built-in request throttling prevents node overload (default: 10 concurrent)
+8. **Auto-Reconnect**: WebSocket subscriptions automatically restored after disconnection
+9. **Thread-Safe**: Network registry is thread-safe for multi-threaded applications
+10. **Metrics Monitoring**: Enable metrics to identify performance bottlenecks
 
 
 ## 📄 License
