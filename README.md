@@ -158,13 +158,13 @@ async def on_error(event):
 
 The library includes pre-configurations for PublicNode endpoints.
 
-| Protocol | Networks |
-|/---|---|
-| **EVM** | Ethereum, BSC, Polygon, Arbitrum, Avalanche, Base, Optimism, Linea, Scroll, Blast |
-| **SVM** | Solana |
-| **Cosmos** | Osmosis, Injective, Celestia, Sei |
-| **Move** | Sui, Aptos |
-| **Other** | Bitcoin, TRON (USDT) |
+| Protocol | Networks                                                                 |
+|----------|--------------------------------------------------------------------------|
+| **EVM**  | Ethereum, BSC, Polygon, Arbitrum, Avalanche, Base, Optimism, Linea, Scroll, Blast |
+| **SVM**  | Solana                                                                   |
+| **Cosmos** | Osmosis, Injective, Celestia, Sei                                      |
+| **Move** | Sui, Aptos                                                               |
+| **Other** | Bitcoin, TRON (USDT)                                                    |
 
 *Note: Bitcoin and TRON implementations rely on specific public APIs and are polling-only by default.*
 
