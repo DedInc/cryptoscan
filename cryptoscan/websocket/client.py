@@ -9,12 +9,16 @@ This is the main facade that combines:
 Much cleaner and more maintainable than the original 260+ line monolithic class.
 """
 
-from typing import Optional, Callable, Any
+from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
+from ..core.config import UserConfig
+from ..security import mask_url
 from .connection_manager import WebSocketConnectionManager
-from .subscription_manager import WebSocketSubscriptionManager
 from .message_processor import WebSocketMessageProcessor
-from ..config import UserConfig
+from .subscription_manager import WebSocketSubscriptionManager
 
 
 class WebSocketClient:
@@ -29,7 +33,7 @@ class WebSocketClient:
     - Dependency Inversion: Depends on abstractions, not concretions
     """
 
-    def __init__(self, ws_url: str, user_config: Optional[UserConfig] = None):
+    def __init__(self, ws_url: str, user_config: UserConfig | None = None) -> None:
         self.ws_url = ws_url
         self.config = user_config or UserConfig()
 
@@ -114,7 +118,7 @@ class WebSocketClient:
     def __repr__(self) -> str:
         return (
             f"WebSocketClient("
-            f"url={self.ws_url}, "
+            f"url={mask_url(self.ws_url)}, "
             f"connected={self._connection_manager.is_connected()}, "
             f"subscriptions={self._subscription_manager.get_subscription_count()})"
         )

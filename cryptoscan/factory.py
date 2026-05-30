@@ -1,181 +1,86 @@
-"""
-Factory functions for creating monitors and providers
-"""
+"""Factory functions for creating monitors and providers."""
 
+from __future__ import annotations
+
+import logging
 from decimal import Decimal
-from typing import Optional, Union
 
-from .config import UserConfig
-from .exceptions import ValidationError
+from .core.config import UserConfig
+from .core.exceptions import ValidationError
+from .core.models import MatchMode, TokenConfig
+from .factory_helpers import (
+    _apply_user_config_overrides,
+    _override_network_urls,
+    _resolve_match_mode,
+    _resolve_network_config,
+    _should_use_realtime,
+    _validate_expected_amount,
+    _warn_on_string_token,
+)
 from .monitoring import PaymentMonitor
-from .universal_provider import UniversalProvider
-from .networks import get_network, list_networks as get_network_list, NetworkConfig
+from .networks import NetworkConfig, get_network
+from .networks import list_networks as get_network_list
+from .provider.universal_provider import UniversalProvider
 
+__all__ = ["create_monitor", "get_provider", "get_supported_networks"]
 
-def _should_use_realtime(
-    network_config: NetworkConfig, custom_rpc_url: Optional[str] = None
-) -> bool:
-    """Detect if real-time monitoring should be used based on WebSocket availability"""
-    # Check custom RPC URL first
-    if custom_rpc_url and custom_rpc_url.startswith("wss://"):
-        return True
-
-    # Check if network has WebSocket configured
-    if network_config.ws_url is not None:
-        return True
-
-    # No WebSocket available, use polling
-    return False
+logger = logging.getLogger(__name__)
 
 
 def create_monitor(
-    network: str | NetworkConfig,  # Network name OR NetworkConfig object
+    network: str | NetworkConfig,
     wallet_address: str,
-    expected_amount: Union[str, Decimal],
+    expected_amount: str | Decimal | None = None,
     poll_interval: float = 15.0,
     max_transactions: int = 10,
     auto_stop: bool = False,
-    rpc_url: Optional[str] = None,
-    ws_url: Optional[str] = None,  # Optional WebSocket URL
-    monitor_id: Optional[str] = None,
-    user_config: Optional[UserConfig] = None,
-    timeout: Optional[float] = None,
-    max_retries: Optional[int] = None,
-    realtime: Optional[bool] = None,  # Auto-detect: None = smart detection
-    min_confirmations: int = 1,  # Minimum confirmations required
-    **kwargs,
+    rpc_url: str | None = None,
+    ws_url: str | None = None,
+    monitor_id: str | None = None,
+    user_config: UserConfig | None = None,
+    timeout: float | None = None,
+    max_retries: int | None = None,
+    realtime: bool | None = None,
+    min_confirmations: int = 1,
+    match_mode: MatchMode | str = MatchMode.EXACT,
+    token_contract: str | TokenConfig | None = None,
 ) -> PaymentMonitor:
-    """Create a payment monitor for any blockchain network
+    """Create a payment monitor for any blockchain network.
 
-    Supports any blockchain (EVM, Solana, Bitcoin, etc.) through:
-    1. Predefined network names (e.g., "ethereum", "solana")
-    2. Custom NetworkConfig objects for any network
-    3. Custom RPC/WebSocket URLs
+    Accepts a registered network name, a ``NetworkConfig``, or any chain via
+    ``rpc_url``/``ws_url``. Mode is auto-detected from WebSocket availability
+    and can be forced with ``realtime``. ``match_mode`` controls amount
+    matching (``"exact"``, ``"at_least"``, ``"any"``); ``expected_amount``
+    is required unless mode is ``"any"``.
 
-    Auto-detects monitoring mode:
-    - WebSocket (real-time) if ws_url provided or rpc_url starts with wss://
-    - Polling mode otherwise
-    - Can be forced with realtime parameter
-
-    Args:
-        network: Network name (str) OR NetworkConfig object for custom networks
-        wallet_address: Wallet address to monitor
-        expected_amount: Expected payment amount (exact match)
-        poll_interval: Seconds between checks for polling mode (default: 15.0)
-        max_transactions: Max transactions to check per poll (default: 10)
-        auto_stop: Stop monitoring after finding payment (default: False)
-        rpc_url: Custom RPC URL (optional, overrides network config)
-        ws_url: Custom WebSocket URL (optional, enables real-time)
-        monitor_id: Optional monitor identifier
-        user_config: User configuration (optional)
-        timeout: Request timeout override
-        max_retries: Max retries override
-        realtime: Auto-detect (None), force real-time (True), or force polling (False)
-        min_confirmations: Minimum confirmations required (default: 1)
-        **kwargs: Additional configuration parameters
-
-    Returns:
-        PaymentMonitor instance
-
-    Raises:
-        ValidationError: If network is not supported or parameters invalid
+    Raises ValidationError on invalid network or parameters.
 
     Examples:
-        >>> monitor = create_monitor(
-        ...     network="ethereum",
-        ...     wallet_address="0x...",
-        ...     expected_amount="1.0",
-        ...     auto_stop=True
-        ... )
-        >>> await monitor.start()
-
-        >>> # Custom network via NetworkConfig
-        >>> from cryptoscan import NetworkConfig
-        >>> custom_net = NetworkConfig(
-        ...     name="mychain",
-        ...     symbol="MCH",
-        ...     rpc_url="https://rpc.mychain.com",
-        ...     chain_type="evm",
-        ...     decimals=18
-        ... )
-        >>> monitor = create_monitor(
-        ...     network=custom_net,
-        ...     wallet_address="0x...",
-        ...     expected_amount="1.0"
-        ... )
+        >>> monitor = create_monitor("ethereum", "0x...", "1.0", auto_stop=True)
+        >>> monitor = create_monitor("ethereum", "0x...", match_mode="any")
     """
-    # Get or create network configuration
-    if isinstance(network, NetworkConfig):
-        # User provided NetworkConfig directly
-        network_config = network
-    elif isinstance(network, str):
-        # Try to get from registry
-        network_config = get_network(network)
-        if not network_config:
-            # Not in registry - that's OK! User can still provide rpc_url
-            if not rpc_url:
-                supported = ", ".join(get_network_list())
-                raise ValidationError(
-                    f"Network '{network}' not in registry. "
-                    f"Either add it to NETWORKS or provide rpc_url parameter.\n"
-                    f"Registered networks: {supported}"
-                )
-            # Create minimal config for custom network
-            network_config = NetworkConfig(
-                name=network,
-                symbol="",
-                rpc_url=rpc_url,
-                ws_url=ws_url,
-                chain_type="evm",  # Default assumption
-            )
-    else:
-        raise ValidationError(f"Invalid network parameter type: {type(network)}")
+    network_config = _resolve_network_config(network, rpc_url, ws_url)
+    network_config = _override_network_urls(network_config, rpc_url, ws_url)
+    resolved_match_mode = _resolve_match_mode(match_mode)
+    _validate_expected_amount(expected_amount, resolved_match_mode)
+    user_config = _apply_user_config_overrides(user_config, timeout, max_retries)
 
-    # Override network config with custom URLs if provided
-    if rpc_url or ws_url:
-        # User provided custom URLs - override config
-        from dataclasses import replace
-
-        network_config = replace(
-            network_config,
-            rpc_url=rpc_url or network_config.rpc_url,
-            ws_url=ws_url if ws_url is not None else network_config.ws_url,
-        )
-
-    # Validate expected_amount
-    expected_decimal = Decimal(str(expected_amount))
-    if expected_decimal <= 0:
-        raise ValidationError("Expected amount must be positive")
-
-    # Create or configure user config
-    if user_config is None:
-        user_config = UserConfig()
-
-    # Apply overrides
-    if timeout is not None:
-        user_config.timeout = timeout
-    if max_retries is not None:
-        user_config.max_retries = max_retries
-
-    # Create universal provider
     provider = UniversalProvider(
         network=network_config,
-        rpc_url=None,  # Already in network_config
+        rpc_url=None,
         user_config=user_config,
     )
 
-    # Validate address format
     if not network_config.validate_address(wallet_address):
         raise ValidationError(
             f"Invalid {network_config.name} address format: {wallet_address}"
         )
 
-    # Auto-detect real-time monitoring mode
+    _warn_on_string_token(token_contract)
+
     if realtime is None:
-        # Auto-detect based on WebSocket availability
         realtime = _should_use_realtime(network_config, rpc_url)
 
-    # Create and return monitor
     return PaymentMonitor(
         provider=provider,
         wallet_address=wallet_address,
@@ -187,12 +92,13 @@ def create_monitor(
         user_config=user_config,
         realtime=realtime,
         min_confirmations=min_confirmations,
+        match_mode=resolved_match_mode,
+        token_contract=token_contract,
     )
 
 
 def get_supported_networks() -> list[str]:
-    """
-    Get list of all supported network names
+    """Get list of all supported network names.
 
     Returns:
         List of all available network identifiers (including aliases)
@@ -202,11 +108,10 @@ def get_supported_networks() -> list[str]:
 
 def get_provider(
     network: str,
-    rpc_url: Optional[str] = None,
-    user_config: Optional[UserConfig] = None,
+    rpc_url: str | None = None,
+    user_config: UserConfig | None = None,
 ) -> UniversalProvider:
-    """
-    Get a universal provider instance for ANY network
+    """Get a universal provider instance for ANY network.
 
     Args:
         network: Network name or alias

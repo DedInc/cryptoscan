@@ -2,31 +2,19 @@
 Pytest configuration and fixtures for CryptoScan tests.
 """
 
-import asyncio
+from collections.abc import Generator
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Generator
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from cryptoscan.config import UserConfig
-from cryptoscan.models import PaymentInfo, PaymentStatus
+import cryptoscan.adapters  # noqa: F401
+import cryptoscan.parsers  # noqa: F401
+import cryptoscan.websocket  # noqa: F401
+from cryptoscan.core.config import UserConfig
+from cryptoscan.core.models import PaymentInfo, PaymentStatus
 from cryptoscan.networks import NetworkConfig
-
-
-# =============================================================================
-# Event Loop Fixtures
-# =============================================================================
-
-
-@pytest.fixture(scope="session")
-def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
-    """Create an event loop for the test session."""
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
-
 
 # =============================================================================
 # Network Configuration Fixtures
@@ -140,7 +128,9 @@ def sample_evm_block() -> dict:
         "timestamp": "0x5f5e100",  # 100000000
         "transactions": [
             {
-                "hash": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+                "hash": (
+                    "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+                ),
                 "from": "0x1234567890123456789012345678901234567890",
                 "to": "0x742d35Cc6634C0532925a3b844Bc9e7595f8fE23",
                 "value": "0xde0b6b3a7640000",  # 1 ETH in wei
@@ -241,9 +231,9 @@ def async_mock() -> AsyncMock:
 
 
 @pytest.fixture(autouse=True)
-def cleanup_registered_networks():
+def cleanup_registered_networks() -> Generator[None, None, None]:
     """Clean up registered networks after each test."""
-    from cryptoscan.networks import _registered_networks, _networks_lock
+    from cryptoscan.networks import _networks_lock, _registered_networks
 
     yield
 

@@ -147,5 +147,4 @@ Thumbs.db
 # Project specific
 config.json
 *.log
-test_*.py
 examples/test_*.py

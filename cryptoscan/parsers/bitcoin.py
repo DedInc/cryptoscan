@@ -4,37 +4,66 @@ Bitcoin chain parser using RPC.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import List, Optional
 
-from ..models import PaymentInfo, PaymentStatus
+__all__ = ["BitcoinParser"]
+
+from ..core.exceptions import CSConnectionError, CSTimeoutError, RPCError
+from ..core.models import PaymentInfo, PaymentStatus, TokenConfig
 from .base import ChainParser
+
+logger = logging.getLogger(__name__)
 
 
 class BitcoinParser(ChainParser):
     """Parser for Bitcoin transactions using RPC."""
 
+    async def get_block_number(self) -> int:
+        return 0
+
+    async def get_block_for_payment(
+        self,
+        _block_identifier: str,
+        _wallet_address: str,
+        _expected_amount: Decimal | None,
+        _latest_block_num: int | None = None,
+        _match_mode: object | None = None,
+        _token_contract: str | TokenConfig | None = None,
+    ) -> PaymentInfo | None:
+        return None
+
     async def get_transactions(
-        self, address: str, limit: int, expected_amount: Optional[Decimal] = None
-    ) -> List[PaymentInfo]:
+        self,
+        address: str,
+        _limit: int,
+        _expected_amount: Decimal | None = None,
+        _match_mode: object | None = None,
+        _token_contract: str | TokenConfig | None = None,
+    ) -> list[PaymentInfo]:
         """Get Bitcoin transactions via RPC"""
         await self.client.connect()
 
         try:
-            # Use Bitcoin RPC methods
-            # scantxoutset can scan for unspent outputs matching the address
             await self.client.call(
                 "scantxoutset",
                 ["start", [f"addr({address})"]],
             )
-            # Note: Bitcoin RPC has limited transaction history access
-            # For full transaction history, users should use block explorers or indexers
             return []
-        except Exception:
+        except (RPCError, CSConnectionError, CSTimeoutError) as e:
+            logger.warning(
+                f"Bitcoin get_transactions network error for {address}: "
+                f"{e.__class__.__name__}"
+            )
+            return []
+        except (KeyError, ValueError, TypeError) as e:
+            logger.warning(
+                f"Bitcoin get_transactions failed for {address}: {e.__class__.__name__}"
+            )
             return []
 
-    async def get_transaction(self, tx_id: str) -> Optional[PaymentInfo]:
+    async def get_transaction(self, tx_id: str) -> PaymentInfo | None:
         """Get Bitcoin transaction via RPC"""
         await self.client.connect()
 
@@ -43,10 +72,18 @@ class BitcoinParser(ChainParser):
             if not tx:
                 return None
             return self.parse_transaction(tx)
-        except Exception:
+        except (RPCError, CSConnectionError, CSTimeoutError) as e:
+            logger.warning(
+                f"Failed to fetch Bitcoin transaction {tx_id}: {e.__class__.__name__}"
+            )
+            return None
+        except (KeyError, ValueError, TypeError) as e:
+            logger.warning(
+                f"Failed to parse Bitcoin transaction {tx_id}: {e.__class__.__name__}"
+            )
             return None
 
-    def parse_transaction(self, tx: dict, address: str = None) -> PaymentInfo:
+    def parse_transaction(self, tx: dict, _address: str = None) -> PaymentInfo:
         """Parse Bitcoin RPC transaction"""
         amount = Decimal(0)
         to_addr = ""
@@ -73,7 +110,7 @@ class BitcoinParser(ChainParser):
             status=PaymentStatus.CONFIRMED
             if tx.get("confirmations", 0) > 0
             else PaymentStatus.PENDING,
-            timestamp=datetime.fromtimestamp(tx.get("time", 0))
+            timestamp=datetime.fromtimestamp(tx.get("time", 0), tz=timezone.utc)
             if tx.get("time")
             else datetime.now(timezone.utc),
             block_height=tx.get("blockheight"),

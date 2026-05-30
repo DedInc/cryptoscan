@@ -8,10 +8,10 @@ Provides a clean, modular WebSocket client system following SOLID principles:
 - WebSocketClient: Facade that combines all components
 """
 
-from .connection_manager import WebSocketConnectionManager
-from .subscription_manager import WebSocketSubscriptionManager
-from .message_processor import WebSocketMessageProcessor
 from .client import WebSocketClient
+from .connection_manager import WebSocketConnectionManager
+from .message_processor import WebSocketMessageProcessor
+from .subscription_manager import WebSocketSubscriptionManager
 
 __all__ = [
     "WebSocketConnectionManager",

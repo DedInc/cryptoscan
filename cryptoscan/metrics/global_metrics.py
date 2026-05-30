@@ -4,13 +4,13 @@ Global metrics instance management for CryptoScan.
 
 from __future__ import annotations
 
-from typing import Callable, Optional
+from collections.abc import Callable
 
 from .collector import MetricsCollector
 from .types import RequestMetric
 
 # Global metrics collector (disabled by default)
-_global_metrics: Optional[MetricsCollector] = None
+_global_metrics: MetricsCollector | None = None
 
 
 def get_global_metrics() -> MetricsCollector:
@@ -30,7 +30,7 @@ def get_global_metrics() -> MetricsCollector:
 
 def enable_global_metrics(
     max_history: int = 1000,
-    on_request_complete: Optional[Callable[[RequestMetric], None]] = None,
+    on_request_complete: Callable[[RequestMetric], None] | None = None,
 ) -> MetricsCollector:
     """
     Enable global metrics collection.

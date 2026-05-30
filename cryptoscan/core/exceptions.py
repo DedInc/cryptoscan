@@ -2,6 +2,19 @@
 Custom exceptions for CryptoScan
 """
 
+__all__ = [
+    "CryptoScanError",
+    "NetworkError",
+    "CSConnectionError",
+    "CSTimeoutError",
+    "PaymentNotFoundError",
+    "ValidationError",
+    "RPCError",
+    "ParserError",
+    "BlockFetchError",
+    "AdapterError",
+]
+
 
 class CryptoScanError(Exception):
     """Base exception for all CryptoScan errors"""
@@ -12,7 +25,7 @@ class CryptoScanError(Exception):
 class NetworkError(CryptoScanError):
     """Network-related errors (connection, timeout, etc.)"""
 
-    def __init__(self, message: str, original_error: Exception = None):
+    def __init__(self, message: str, original_error: Exception = None) -> None:
         super().__init__(message)
         self.message = message
         self.original_error = original_error
@@ -33,23 +46,27 @@ class ValidationError(CryptoScanError):
 class RPCError(CryptoScanError):
     """RPC call errors"""
 
-    def __init__(self, message: str, code: int = None, data: dict = None):
+    def __init__(self, message: str, code: int = None, data: dict = None) -> None:
         super().__init__(message)
         self.message = message
         self.code = code
         self.data = data or {}
 
 
-class ConnectionError(NetworkError):
+class CSConnectionError(NetworkError):
     """WebSocket connection errors"""
 
     pass
 
 
-class TimeoutError(NetworkError):
+class CSTimeoutError(NetworkError):
     """Request timeout errors"""
 
     pass
+
+
+ConnectionError = CSConnectionError
+TimeoutError = CSTimeoutError
 
 
 class ParserError(CryptoScanError):
@@ -57,7 +74,7 @@ class ParserError(CryptoScanError):
 
     def __init__(
         self, message: str, transaction_id: str = None, original_error: Exception = None
-    ):
+    ) -> None:
         super().__init__(message)
         self.message = message
         self.transaction_id = transaction_id
@@ -69,7 +86,7 @@ class BlockFetchError(NetworkError):
 
     def __init__(
         self, message: str, block_number: int = None, original_error: Exception = None
-    ):
+    ) -> None:
         super().__init__(message, original_error)
         self.block_number = block_number
 
@@ -79,7 +96,7 @@ class AdapterError(CryptoScanError):
 
     def __init__(
         self, message: str, adapter_name: str = None, original_error: Exception = None
-    ):
+    ) -> None:
         super().__init__(message)
         self.message = message
         self.adapter_name = adapter_name

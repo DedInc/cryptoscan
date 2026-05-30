@@ -7,11 +7,17 @@ Contains all monitoring-related components:
 """
 
 from .monitor import PaymentMonitor
-from .strategies import MonitoringStrategy, PollingStrategy, RealtimeStrategy
+from .strategies import (
+    MonitoringStrategy,
+    PollingStrategy,
+    RealtimeStrategy,
+    register_websocket_chain_type,
+)
 
 __all__ = [
     "PaymentMonitor",
     "MonitoringStrategy",
     "PollingStrategy",
     "RealtimeStrategy",
+    "register_websocket_chain_type",
 ]

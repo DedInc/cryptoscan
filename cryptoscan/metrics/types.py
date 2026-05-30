@@ -5,7 +5,6 @@ Metric types and data classes for CryptoScan.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Optional
 
 
 @dataclass
@@ -15,9 +14,9 @@ class RequestMetric:
     method: str
     endpoint: str
     start_time: float
-    end_time: Optional[float] = None
+    end_time: float | None = None
     success: bool = True
-    error: Optional[str] = None
+    error: str | None = None
     response_size: int = 0
 
     @property
@@ -49,6 +48,6 @@ class MetricsSummary:
     uptime_seconds: float = 0.0
 
     # Per-method breakdown
-    method_counts: Dict[str, int] = field(default_factory=dict)
-    method_errors: Dict[str, int] = field(default_factory=dict)
-    method_avg_times: Dict[str, float] = field(default_factory=dict)
+    method_counts: dict[str, int] = field(default_factory=dict)
+    method_errors: dict[str, int] = field(default_factory=dict)
+    method_avg_times: dict[str, float] = field(default_factory=dict)

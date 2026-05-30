@@ -1,83 +1,18 @@
-"""
-Security utilities for CryptoScan
-
-Provides URL validation and address masking for secure logging.
-"""
+"""Address/transaction masking and log sanitization utilities for CryptoScan."""
 
 from __future__ import annotations
 
+__all__ = [
+    "MIN_ADDRESS_LENGTH_FOR_MASKING",
+    "mask_address",
+    "mask_transaction_id",
+    "mask_url",
+    "sanitize_log_data",
+]
+
 from urllib.parse import urlparse
-from typing import Optional
 
-
-# Valid URL schemes for RPC endpoints
-VALID_RPC_SCHEMES = frozenset({"http", "https", "ws", "wss"})
-
-# Minimum address length for masking (to avoid masking very short strings)
 MIN_ADDRESS_LENGTH_FOR_MASKING = 12
-
-
-def validate_rpc_url(url: str) -> bool:
-    """Validate that an RPC URL is safe and well-formed.
-
-    Args:
-        url: The RPC URL to validate
-
-    Returns:
-        True if the URL is valid and uses an allowed scheme,
-        False otherwise
-
-    Examples:
-        >>> validate_rpc_url("https://ethereum-rpc.publicnode.com")
-        True
-        >>> validate_rpc_url("wss://ethereum-rpc.publicnode.com")
-        True
-        >>> validate_rpc_url("file:///etc/passwd")
-        False
-        >>> validate_rpc_url("javascript:alert(1)")
-        False
-    """
-    if not url or not isinstance(url, str):
-        return False
-
-    try:
-        parsed = urlparse(url)
-
-        # Check scheme is allowed
-        if parsed.scheme.lower() not in VALID_RPC_SCHEMES:
-            return False
-
-        # Must have a netloc (host)
-        if not parsed.netloc:
-            return False
-
-        # Basic sanity check - no obvious injection attempts
-        if any(char in url for char in ["<", ">", '"', "'"]):
-            return False
-
-        return True
-    except Exception:
-        return False
-
-
-def validate_ws_url(url: str) -> bool:
-    """Validate that a WebSocket URL is safe and well-formed.
-
-    Args:
-        url: The WebSocket URL to validate
-
-    Returns:
-        True if the URL is valid and uses ws:// or wss://,
-        False otherwise
-    """
-    if not url or not isinstance(url, str):
-        return False
-
-    try:
-        parsed = urlparse(url)
-        return parsed.scheme.lower() in {"ws", "wss"} and bool(parsed.netloc)
-    except Exception:
-        return False
 
 
 def mask_address(address: str, prefix_length: int = 8, suffix_length: int = 6) -> str:
@@ -103,11 +38,9 @@ def mask_address(address: str, prefix_length: int = 8, suffix_length: int = 6) -
     if not address or not isinstance(address, str):
         return address or ""
 
-    # Don't mask if address is too short
     if len(address) < MIN_ADDRESS_LENGTH_FOR_MASKING:
         return address
 
-    # Don't mask if we'd show more than we hide
     if prefix_length + suffix_length > len(address):
         return address
 
@@ -135,7 +68,37 @@ def mask_transaction_id(tx_id: str, visible_length: int = 16) -> str:
     return f"{tx_id[:visible_length]}..."
 
 
-def sanitize_log_data(data: dict, keys_to_mask: Optional[set] = None) -> dict:
+def mask_url(url: str) -> str:
+    """Mask a URL for safe logging.
+
+    Hides query params and path segments that may contain secrets.
+
+    Examples:
+        >>> mask_url("wss://eth-mainnet.g.alchemy.com/v2/abc123apikey")
+        'wss://eth-mainnet.g.alchemy.com/v2/***MASKED***'
+        >>> mask_url("https://rpc.example.com")
+        'https://rpc.example.com'
+    """
+    if not url or not isinstance(url, str):
+        return url or ""
+    try:
+        parsed = urlparse(url)
+        if not parsed.netloc:
+            return "***INVALID_URL***"
+        path = parsed.path
+        if path and path != "/":
+            parts = path.rstrip("/").split("/")
+            if len(parts) > 2:
+                path = "/".join(parts[:2]) + "/***MASKED***"
+        masked = f"{parsed.scheme}://{parsed.netloc}{path}"
+        if parsed.query:
+            masked += "?***MASKED***"
+        return masked
+    except Exception:
+        return "***URL_PARSE_ERROR***"
+
+
+def sanitize_log_data(data: dict, keys_to_mask: set | None = None) -> dict:
     """Sanitize a dictionary for safe logging by masking sensitive values.
 
     Args:

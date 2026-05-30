@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
-from typing import List, Optional
 
 import httpx
 
-from ..exceptions import AdapterError
-from ..models import PaymentInfo, PaymentStatus
+__all__ = ["TONCenterAdapter"]
+
+from ..core.exceptions import AdapterError
+from ..core.models import PaymentInfo, PaymentStatus
 from .base import MAX_RESPONSE_SIZE, BaseAdapter
 
 logger = logging.getLogger(__name__)
@@ -21,7 +22,7 @@ class TONCenterAdapter(BaseAdapter):
 
     async def get_transactions(
         self, address: str, limit: int = 10
-    ) -> List[PaymentInfo]:
+    ) -> list[PaymentInfo]:
         """Get transactions from TON Center API with tenacity retry"""
         await self.connect()
 
@@ -71,22 +72,30 @@ class TONCenterAdapter(BaseAdapter):
 
                 except httpx.HTTPError as e:
                     logger.warning(
-                        f"TON API HTTP Error (attempt {attempt.retry_state.attempt_number}): {e}"
+                        "TON Center API error: %s status=%s",
+                        e.__class__.__name__,
+                        getattr(e, "response", None) and e.response.status_code,
                     )
-                    raise  # Let tenacity handle retry
+                    raise
 
                 except AdapterError:
-                    raise  # Don't retry adapter errors
+                    raise
 
-                except Exception as e:
-                    logger.error(f"TON API Error: {e}")
+                except (
+                    KeyError,
+                    ValueError,
+                    TypeError,
+                    IndexError,
+                    ArithmeticError,
+                ) as e:
+                    logger.error(f"TON API Error: {e.__class__.__name__}")
                     raise AdapterError(
-                        f"TON API error: {e}",
+                        f"TON API error: {e.__class__.__name__}",
                         adapter_name="ton_center",
                         original_error=e,
-                    )
+                    ) from e
 
-    async def get_transaction(self, tx_id: str) -> Optional[PaymentInfo]:
+    async def get_transaction(self, tx_id: str) -> PaymentInfo | None:
         """Get single transaction with tenacity retry"""
         await self.connect()
 
@@ -109,11 +118,18 @@ class TONCenterAdapter(BaseAdapter):
                         return None
 
                     return self._parse_ton_tx(data["result"])
-        except Exception as e:
-            logger.error(f"Failed to get TON transaction: {e}")
+        except httpx.HTTPError as e:
+            logger.warning(
+                "TON Center API error: %s status=%s",
+                e.__class__.__name__,
+                getattr(e, "response", None) and e.response.status_code,
+            )
+            return None
+        except (AdapterError, KeyError, ValueError, TypeError) as e:
+            logger.error(f"Failed to get TON transaction: {e.__class__.__name__}")
             return None
 
-    def _parse_ton_tx(self, tx: dict, address: str = None) -> Optional[PaymentInfo]:
+    def _parse_ton_tx(self, tx: dict, _address: str = None) -> PaymentInfo | None:
         """Parse TON transaction"""
         try:
             # TON has complex transaction structure
@@ -134,7 +150,7 @@ class TONCenterAdapter(BaseAdapter):
                 amount=amount,
                 currency=self.network_config.symbol,
                 status=PaymentStatus.CONFIRMED,
-                timestamp=datetime.fromtimestamp(tx.get("utime", 0)),
+                timestamp=datetime.fromtimestamp(tx.get("utime", 0), tz=timezone.utc),
                 block_height=None,
                 confirmations=1,
                 fee=Decimal(tx.get("fee", "0"))
@@ -143,6 +159,6 @@ class TONCenterAdapter(BaseAdapter):
                 to_address=destination,
                 raw_data=tx,
             )
-        except Exception as e:
+        except (KeyError, ValueError, TypeError, IndexError, ArithmeticError) as e:
             logger.error(f"TON TX Parse Error: {e}")
             return None

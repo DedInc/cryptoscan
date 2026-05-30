@@ -1,0 +1,82 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pycryptoscan"
+dynamic = ["version"]
+description = "Async cryptocurrency payment detection and wallet tracking for Python"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "DedInc.", email = "visitanimation@gmail.com" }
+]
+keywords = [
+    "cryptocurrency", "crypto", "payment", "monitoring",
+    "blockchain", "solana", "ethereum", "bitcoin", "async",
+    "httpx", "http2", "fintech"
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Office/Business :: Financial",
+    "Topic :: Security :: Cryptography",
+]
+dependencies = [
+    "httpx[http2]>=0.24.0,<1.0.0",
+    "tenacity>=8.0.0"
+]
+
+[project.urls]
+"Bug Reports" = "https://github.com/DedInc/cryptoscan/issues"
+"Source" = "https://github.com/DedInc/cryptoscan"
+
+[project.optional-dependencies]
+realtime = [
+    "websockets>=13.0"
+]
+test = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.10.0"
+]
+dev = [
+    "ruff"
+]
+
+[tool.setuptools.dynamic]
+version = { attr = "cryptoscan._version.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["cryptoscan*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+addopts = "-v --tb=short --cov=cryptoscan"
+markers = [
+    "asyncio: mark test as async",
+    "slow: mark test as slow running",
+    "integration: mark test as integration test"
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

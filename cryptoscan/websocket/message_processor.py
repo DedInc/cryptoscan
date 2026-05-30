@@ -14,11 +14,11 @@ try:
 
     WEBSOCKETS_AVAILABLE = True
 except ImportError:
+    websockets = None
     WEBSOCKETS_AVAILABLE = False
 
 from .connection_manager import WebSocketConnectionManager
 from .subscription_manager import WebSocketSubscriptionManager
-
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ class WebSocketMessageProcessor:
         self,
         connection_manager: WebSocketConnectionManager,
         subscription_manager: WebSocketSubscriptionManager,
-    ):
+    ) -> None:
         self.connection = connection_manager
         self.subscriptions = subscription_manager
 
@@ -120,7 +120,8 @@ class WebSocketMessageProcessor:
                     restored_count = await self.subscriptions.restore_subscriptions()
                     if restored_count > 0:
                         logger.info(
-                            f"Restored {restored_count} subscription(s) after reconnection"
+                            "Restored %s subscription(s) after reconnection",
+                            restored_count,
                         )
                     else:
                         logger.debug("No subscriptions to restore")

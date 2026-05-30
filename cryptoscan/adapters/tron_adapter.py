@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
-from typing import List, Optional
 
 import httpx
 
-from ..exceptions import AdapterError
-from ..models import PaymentInfo, PaymentStatus
+__all__ = ["TRONGridAdapter"]
+
+from ..core.exceptions import AdapterError
+from ..core.models import PaymentInfo, PaymentStatus
 from .base import MAX_RESPONSE_SIZE, BaseAdapter
 
 logger = logging.getLogger(__name__)
@@ -21,7 +22,7 @@ class TRONGridAdapter(BaseAdapter):
 
     async def get_transactions(
         self, address: str, limit: int = 10
-    ) -> List[PaymentInfo]:
+    ) -> list[PaymentInfo]:
         """Get transactions from TRON Grid API with tenacity retry"""
         await self.connect()
 
@@ -63,22 +64,30 @@ class TRONGridAdapter(BaseAdapter):
 
                 except httpx.HTTPError as e:
                     logger.warning(
-                        f"TRON API HTTP Error (attempt {attempt.retry_state.attempt_number}): {e}"
+                        "TRON Grid API error: %s status=%s",
+                        e.__class__.__name__,
+                        getattr(e, "response", None) and e.response.status_code,
                     )
-                    raise  # Let tenacity handle retry
+                    raise
 
                 except AdapterError:
-                    raise  # Don't retry adapter errors
+                    raise
 
-                except Exception as e:
-                    logger.error(f"TRON API Error: {e}")
+                except (
+                    KeyError,
+                    ValueError,
+                    TypeError,
+                    IndexError,
+                    ArithmeticError,
+                ) as e:
+                    logger.error(f"TRON API Error: {e.__class__.__name__}")
                     raise AdapterError(
-                        f"TRON API error: {e}",
+                        f"TRON API error: {e.__class__.__name__}",
                         adapter_name="tron_grid",
                         original_error=e,
-                    )
+                    ) from e
 
-    async def get_transaction(self, tx_id: str) -> Optional[PaymentInfo]:
+    async def get_transaction(self, tx_id: str) -> PaymentInfo | None:
         """Get single transaction with tenacity retry"""
         await self.connect()
 
@@ -92,11 +101,18 @@ class TRONGridAdapter(BaseAdapter):
                     response.raise_for_status()
                     data = response.json()
                     return self._parse_tron_tx(data)
-        except Exception as e:
-            logger.error(f"Failed to get TRON transaction: {e}")
+        except httpx.HTTPError as e:
+            logger.warning(
+                "TRON Grid API error: %s status=%s",
+                e.__class__.__name__,
+                getattr(e, "response", None) and e.response.status_code,
+            )
+            return None
+        except (AdapterError, KeyError, ValueError, TypeError) as e:
+            logger.error(f"Failed to get TRON transaction: {e.__class__.__name__}")
             return None
 
-    def _parse_tron_tx(self, tx: dict, address: str = None) -> Optional[PaymentInfo]:
+    def _parse_tron_tx(self, tx: dict, _address: str = None) -> PaymentInfo | None:
         """Parse TRON transaction"""
         try:
             raw_data = tx.get("raw_data", {})
@@ -115,7 +131,9 @@ class TRONGridAdapter(BaseAdapter):
                 status=PaymentStatus.CONFIRMED
                 if tx.get("ret", [{}])[0].get("contractRet") == "SUCCESS"
                 else PaymentStatus.FAILED,
-                timestamp=datetime.fromtimestamp(raw_data.get("timestamp", 0) / 1000),
+                timestamp=datetime.fromtimestamp(
+                    raw_data.get("timestamp", 0) / 1000, tz=timezone.utc
+                ),
                 block_height=tx.get("blockNumber"),
                 confirmations=1,
                 fee=None,
@@ -123,6 +141,6 @@ class TRONGridAdapter(BaseAdapter):
                 to_address=value_data.get("to_address", ""),
                 raw_data=tx,
             )
-        except Exception as e:
+        except (KeyError, ValueError, TypeError, IndexError, ArithmeticError) as e:
             logger.error(f"TRON TX Parse Error: {e}")
             return None

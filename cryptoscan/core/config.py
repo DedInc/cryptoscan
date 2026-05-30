@@ -2,13 +2,27 @@
 Configuration classes for CryptoScan
 """
 
+from __future__ import annotations
+
+__all__ = [
+    "MAX_BLOCKS_TO_SCAN",
+    "BLOCKS_PER_TX_MULTIPLIER",
+    "DEFAULT_WS_CLOSE_TIMEOUT",
+    "DEFAULT_WS_PING_INTERVAL",
+    "DEFAULT_WS_PING_TIMEOUT",
+    "DEFAULT_WS_MAX_RECONNECT_ATTEMPTS",
+    "DEFAULT_WS_RECONNECT_DELAY",
+    "DEFAULT_HTTP_TIMEOUT",
+    "DEFAULT_MAX_RETRIES",
+    "DEFAULT_RETRY_DELAY",
+    "DEFAULT_CONNECTOR_LIMIT",
+    "DEFAULT_ADAPTER_TIMEOUT",
+    "ProxyConfig",
+    "UserConfig",
+    "create_user_config",
+]
+
 from dataclasses import dataclass, field
-from typing import Dict, Optional
-
-
-# =============================================================================
-# Constants - Centralized configuration values
-# =============================================================================
 
 # Block scanning limits
 MAX_BLOCKS_TO_SCAN = 100  # Maximum blocks to check (~20 minutes on ETH)
@@ -35,13 +49,18 @@ DEFAULT_ADAPTER_TIMEOUT = 30.0  # Seconds for adapter HTTP timeout
 class ProxyConfig:
     """Proxy configuration"""
 
-    https_proxy: Optional[str] = None
-    http_proxy: Optional[str] = None
-    proxy_auth: Optional[str] = None
-    proxy_headers: Dict[str, str] = field(default_factory=dict)
+    https_proxy: str | None = None
+    http_proxy: str | None = None
+    proxy_auth: str | None = None
+    proxy_headers: dict[str, str] = field(default_factory=dict)
 
     @classmethod
-    def from_url(cls, proxy_url: str, auth: str = None, headers: Dict[str, str] = None):
+    def from_url(
+        cls,
+        proxy_url: str,
+        auth: str = None,
+        headers: dict[str, str] = None,
+    ) -> ProxyConfig:
         """Create ProxyConfig from URL"""
         return cls(
             https_proxy=proxy_url,
@@ -55,7 +74,7 @@ class ProxyConfig:
 class UserConfig:
     """User configuration for monitors and providers"""
 
-    proxy_config: Optional[ProxyConfig] = None
+    proxy_config: ProxyConfig | None = None
     timeout: float = DEFAULT_HTTP_TIMEOUT
     max_retries: int = DEFAULT_MAX_RETRIES
     retry_delay: float = DEFAULT_RETRY_DELAY
@@ -74,9 +93,9 @@ class UserConfig:
 
 
 def create_user_config(
-    proxy_url: Optional[str] = None,
-    proxy_auth: Optional[str] = None,
-    proxy_headers: Optional[Dict[str, str]] = None,
+    proxy_url: str | None = None,
+    proxy_auth: str | None = None,
+    proxy_headers: dict[str, str] | None = None,
     timeout: float = DEFAULT_HTTP_TIMEOUT,
     max_retries: int = DEFAULT_MAX_RETRIES,
     retry_delay: float = DEFAULT_RETRY_DELAY,
